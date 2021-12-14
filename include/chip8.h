@@ -1,6 +1,7 @@
 #ifndef CHIP8_H
 #define CHIP8_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -22,7 +23,12 @@ typedef uint8_t chip8_status_e;
 #define CHIP8_ERROR_INVALID_OPCODE 3
 #define CHIP8_ERROR_UNSUPPORTED_OPCODE 4
 
-// TODO
+/**
+ * @brief Initialize the CHIP-8 emulator and set up the necessary callback functions for I/O
+ * 
+ * @param random_byte_func Function that returns a random byte
+ * @param draw_byte_func Function that draws a byte on the screen at x, y
+ */
 void chip8_init(uint8_t (*random_byte_func)(), void (*draw_byte_func)(uint8_t, uint8_t, uint8_t));
 
 /**

@@ -74,6 +74,7 @@ static uint8_t op_msb, op_lsb;
 
 // Working variables for opcode handling
 static uint16_t temp;
+static uint8_t i;
 
 // === Emulator implementation === //
 
