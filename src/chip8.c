@@ -23,7 +23,12 @@ void chip8_init(chip8_cpu_t *cpu, uint8_t (*delay_timer)(uint8_t))
     cpu->StackPointer = 0;
     memset(cpu->V, 0, REGISTER_COUNT);
     memset(cpu->Stack, 0, STACK_SIZE);
+    // Clear the system memory
     memset(cpu->Memory, 0, MEMORY_SIZE);
+    // Clear the screen memory
+    memset(cpu->Screen, 0, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
+    // Load the font into system memory
+    memcpy(cpu->Memory, FONT, sizeof(FONT));
 }
 
 void chip8_cycle(chip8_cpu_t *cpu)
@@ -58,7 +63,6 @@ void chip8_cycle(chip8_cpu_t *cpu)
         switch (kk)
         {
         case 0xE0: // CLS
-            // TODO: clear screen
             DEBUG_PRINT("CLEAR SCREEN\r\n");
             cpu->PC += 2;
             break;
@@ -164,7 +168,7 @@ void chip8_cycle(chip8_cpu_t *cpu)
         DEBUG_PRINT("NOT IMPLEMENTED: %04X\r\n", opcode);
         exit(1);
         break;
-    case 0xA: // LD I
+    case 0xA: // LD I, nnn
         cpu->PC += 2;
         cpu->I = nnn;
         break;
@@ -172,25 +176,36 @@ void chip8_cycle(chip8_cpu_t *cpu)
         DEBUG_PRINT("NOT IMPLEMENTED: %04X\r\n", opcode);
         exit(1);
         break;
-    case 0xC:
-        DEBUG_PRINT("NOT IMPLEMENTED: %04X\r\n", opcode);
-        exit(1);
+    case 0xC: // RND Vx, byte
+        cpu->PC += 2;
+
+        uint8_t r = rand() % 0xFF;
+
+        cpu->V[x] = r & kk;
+
         break;
     case 0xD:
         cpu->PC += 2;
 
+        // TODO: this does not handle sprites wrapping off screen
+        // TODO: this does not properly set Vf flag
+
         // Read n bytes from memory at I
+        uint8_t *sprite = &cpu->Memory[cpu->I];
 
-        // XOR the bytes as sprites onto screen at x, y
-
-        for (i = 0; i < n; i++)
+        for (int i = 0; i < n; i++)
         {
-            
+            for (int j = 0; j < 8; j++)
+            {
+                uint8_t sx = cpu->V[x] + j;
+                uint8_t sy = cpu->V[y] + i;
+
+                if (sx < CHIP8_SCREEN_WIDTH && sy < CHIP8_SCREEN_HEIGHT)
+                {
+                    cpu->Screen[sx][sy] ^= sprite[i] & (1 << (7 - j));
+                }
+            }
         }
-
-        // If pixels are erased, set VF to 1, else 0
-
-        // If sprite is outside screen, wrap it around the otherside
 
         break;
     case 0xE:
@@ -225,10 +240,17 @@ void chip8_cycle(chip8_cpu_t *cpu)
             cpu->PC += 2;
             cpu->DelayTimer(cpu->V[x]);
 
+        case 0x1E: // ADD I, Vx
+            cpu->PC += 2;
+            cpu->I += cpu->V[x];
+            break;
+
             break;
         case 0x29: // LD F, Vx
             cpu->PC += 2;
-            DEBUG_PRINT("TODO LD F, V\r\n");
+            // Set I = memory location where the sprite for value of Vx is
+
+            cpu->I = cpu->V[x] * 5;
 
             break;
         case 0x33: //LD B, Vx
@@ -237,6 +259,11 @@ void chip8_cycle(chip8_cpu_t *cpu)
             cpu->Memory[cpu->I + 1] = (cpu->V[x] / 100) % 10;
             cpu->Memory[cpu->I + 2] = (cpu->V[x] % 100) % 10;
             break;
+
+        case 0x55:
+            cpu->PC += 2;
+
+            memcpy(&cpu->Memory[cpu->I], cpu->V, x + 1);
 
         case 0x65: // LD Vx, [I]
             cpu->PC += 2;
@@ -259,6 +286,4 @@ void chip8_cycle(chip8_cpu_t *cpu)
 
         break;
     }
-
-    DEBUG_PRINT("OP: %04X | PC: %04X | I: %04X | SP: %02X\r\n", opcode, cpu->PC, cpu->I, cpu->StackPointer);
 }

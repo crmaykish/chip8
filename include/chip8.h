@@ -10,11 +10,10 @@
 #define REGISTER_COUNT 16
 #define STACK_SIZE 16
 #define PC_START 0x200
-#define SCREEN_WIDTH 64
-#define SCREEN_HEIGHT 32
+#define CHIP8_SCREEN_WIDTH 64
+#define CHIP8_SCREEN_HEIGHT 32
 
-// TODO: store the font in the low part of emulator memory
-const uint8_t FONT[16][5] = {
+static const uint8_t FONT[16][5] = {
     {0xF0, 0x90, 0x90, 0x90, 0xF0}, // 0
     {0x20, 0x60, 0x20, 0x20, 0x70}, // 1
     {0xF0, 0x10, 0xF0, 0x80, 0xF0}, // 2
@@ -42,7 +41,7 @@ typedef struct
     uint8_t StackPointer;
     uint16_t Stack[STACK_SIZE];
     uint8_t Memory[MEMORY_SIZE];
-    bool Screen[SCREEN_WIDTH][SCREEN_HEIGHT];
+    bool Screen[CHIP8_SCREEN_WIDTH][CHIP8_SCREEN_HEIGHT];
     uint8_t (*DelayTimer)(uint8_t);
     // TODO: sound timer
     // TODO: input
