@@ -148,8 +148,21 @@ void chip8_cycle(chip8_cpu_t *cpu)
             cpu->V[x] = temp & 0xFF;
             cpu->V[0xF] = (temp > 255) ? 1 : 0;
             break;
-            // case 5:
-            //     break;
+        case 5: // SUB Vx, Vy
+            cpu->PC += 2;
+
+            cpu->V[x] -= cpu->V[y];
+
+            if (cpu->V[x] > cpu->V[y])
+            {
+                cpu->V[0xF] = 1;
+            }
+            else
+            {
+                cpu->V[0xF] = 0;
+            }
+
+            break;
             // case 6:
             //     break;
             // case 7:
@@ -164,9 +177,15 @@ void chip8_cycle(chip8_cpu_t *cpu)
         }
 
         break;
-    case 9:
-        DEBUG_PRINT("NOT IMPLEMENTED: %04X\r\n", opcode);
-        exit(1);
+    case 9: // SNE Vx, Vy
+
+        cpu->PC += 2;
+
+        if (cpu->V[x] != cpu->V[y])
+        {
+            cpu->PC += 2;
+        }
+
         break;
     case 0xA: // LD I, nnn
         cpu->PC += 2;
