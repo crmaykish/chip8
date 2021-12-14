@@ -1,308 +1,370 @@
 #include "chip8.h"
-#include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 
-void chip8_init(chip8_cpu_t *cpu, uint8_t (*delay_timer)(uint8_t))
+// === Callbacks === //
+
+static uint8_t (*random_byte)();
+
+static void (*draw_sprite_line)(uint8_t, uint8_t, uint8_t);
+
+// === CHIP-8 System State === /
+
+// 4KB of address space
+static uint8_t Memory[CHIP8_MEM_SIZE];
+
+// Bitmap font - this goes into the beginning of memory space
+static uint8_t Font[] = {
+    // First 80 bytes is font sprites
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80  // F
+};
+
+// Address lookup table for font sprites - where in memory does the sprite for each digit start?
+static uint8_t SpriteLookup[0x10] = {0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75};
+
+// 16 8-bit registers
+static uint8_t V[CHIP8_REG_COUNT];
+
+// 16-bit address/pointer register
+static uint16_t I;
+
+// 16-bit program counter
+static uint16_t PC;
+
+// Call stack (16 16-bit addresses)
+static uint16_t Stack[CHIP_8_STACK_SIZE];
+static uint8_t StackPointer;
+
+// TODO: Delay timer
+// TODO: Sound timer
+// TODO: Input "register"
+
+// === Internal emulator state === //
+
+// Current opcode bytes
+static uint8_t op_msb, op_lsb;
+
+// Opcodes are always two bytes long. Fetch and decode consistent pieces of them.
+// Note: These macros depend on the global opcode bytes defined above. They are not portable.
+
+#define FETCH()          \
+    op_msb = Memory[PC]; \
+    op_lsb = Memory[PC + 1]
+
+#define TYPE ((op_msb & 0xF0) >> 4)
+#define NNN (((op_msb & 0x0F) << 8) + op_lsb)
+#define N (op_lsb & 0x0F)
+#define X (op_msb & 0xF)
+#define Y ((op_lsb & 0xF0) >> 4)
+#define KK (op_lsb)
+
+// Working variables for opcode handling
+static uint16_t temp;
+
+// === Emulator implementation === //
+
+void chip8_init(uint8_t (*random_byte_func)(), void (*draw_byte_func)(uint8_t, uint8_t, uint8_t))
 {
-    if (cpu == NULL)
-    {
-        DEBUG_PRINT("chip8_cpu_t pointer is NULL");
-        return;
-    }
+    I = 0;
+    PC = CHIP8_PC_START;
+    StackPointer = 0;
+    memset(V, 0, CHIP8_REG_COUNT);
+    memset(Stack, 0, CHIP_8_STACK_SIZE);
+    memset(Memory, 0, CHIP8_MEM_SIZE);
 
-    // Set the delay timer function pointer
-    cpu->DelayTimer = delay_timer;
+    // Copy font data into memory
+    memcpy(Memory, Font, sizeof(Font));
 
-    // Start the delay timer at 0xFF
-    cpu->DelayTimer(0xFF);
-
-    // Initialize CPU state and memory
-    cpu->I = 0;
-    cpu->PC = PC_START;
-    cpu->StackPointer = 0;
-    memset(cpu->V, 0, REGISTER_COUNT);
-    memset(cpu->Stack, 0, STACK_SIZE);
-    // Clear the system memory
-    memset(cpu->Memory, 0, MEMORY_SIZE);
-    // Clear the screen memory
-    memset(cpu->Screen, 0, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
-    // Load the font into system memory
-    memcpy(cpu->Memory, FONT, sizeof(FONT));
+    random_byte = random_byte_func;
+    draw_sprite_line = draw_byte_func;
 }
 
-void chip8_cycle(chip8_cpu_t *cpu)
+chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes)
 {
-    uint16_t opcode;
-    uint16_t nnn;
-    uint8_t n;
-    uint8_t x, y;
-    uint8_t kk;
-
-    uint16_t temp;
-    uint8_t i;
-
-    if (cpu == NULL)
+    if (rom == NULL)
     {
-        DEBUG_PRINT("chip8_cpu_t pointer is NULL");
-        return;
+        return CHIP8_ERROR_ROM_POINTER_NULL;
     }
 
-    // Fetch opcode
-    opcode = (cpu->Memory[cpu->PC] << 8) + cpu->Memory[cpu->PC + 1];
+    if (bytes > CHIP8_ROM_MAX_SIZE)
+    {
+        return CHIP8_ERROR_ROM_TOO_BIG;
+    }
 
-    nnn = opcode & 0x0FFF;
-    n = opcode & 0x000F;
-    x = (opcode & 0x0F00) >> 8;
-    y = (opcode & 0x00F0) >> 4;
-    kk = opcode & 0x00FF;
+    memcpy(&Memory[CHIP8_PC_START], rom, bytes);
 
-    switch ((opcode & 0xF000) >> 12)
+    return CHIP8_SUCCESS;
+}
+
+chip8_status_e chip8_cycle()
+{
+    // Fetch opcode from system memory at the program counter
+    FETCH();
+
+    // Handle the current opcode based on its type
+    switch (TYPE)
     {
     case 0:
-        switch (kk)
+        switch (KK)
         {
-        case 0xE0: // CLS
-            DEBUG_PRINT("CLEAR SCREEN\r\n");
-            cpu->PC += 2;
+        // CLS - clear the screen
+        case 0xE0:
+            // TODO: clear the screen
+            PC += 2;
             break;
-        case 0xEE: // RET
-            cpu->StackPointer--;
-            cpu->PC = cpu->Stack[cpu->StackPointer];
+
+        // RET - return from subroutine
+        case 0xEE:
+            StackPointer--;
+            PC = Stack[StackPointer];
             break;
+
+        // Invalid 0-type opcode
         default:
-            DEBUG_PRINT("NOT IMPLEMENTED: %04X\r\n", opcode);
-            exit(1);
-            break;
+            return CHIP8_ERROR_INVALID_OPCODE;
         }
 
         break;
 
-    case 1: // JP
-        cpu->PC = nnn;
+    // JP nnn - absolute jump
+    case 1:
+        PC = NNN;
         break;
 
-    case 2: // CALL
-        cpu->Stack[cpu->StackPointer] = cpu->PC;
-        cpu->StackPointer++;
-        cpu->PC = nnn;
+    // CALL nnn - call a subroutine at nnn
+    case 2:
+        Stack[StackPointer] = PC;
+        StackPointer++;
+        PC = NNN;
         break;
-    case 3: // SE (skip if equal)
-        cpu->PC += 2;
 
-        if (cpu->V[x] == kk)
-        {
-            cpu->PC += 2;
-        }
-
+    // SE Vx, kk - Skip next instruction if Vx equals kk
+    case 3:
+        PC += 2;
+        if (V[X] == KK)
+            PC += 2;
         break;
-    case 4: // SNE (skip if not equal)
-        cpu->PC += 2;
 
-        if (cpu->V[x] != kk)
-        {
-            cpu->PC += 2;
-        }
+    // SNE Vx, kk - Skip next instruction if Vx does not equal kk
+    case 4:
+        PC += 2;
+        if (V[X] != KK)
+            PC += 2;
+        break;
 
+    // SE Vx, Vy - Skip next instruction if Vx == Vy
+    // Note: this is technically only a valid opcode when N == 0, not checking for that
+    case 5:
+        PC += 2;
+        if (V[X] == V[Y])
+            PC += 2;
         break;
-    case 5: // SE (skip if registers are equal)
-        cpu->PC += 2;
 
-        if (cpu->V[x] == cpu->V[y])
-        {
-            cpu->PC += 2;
-        }
+    // LD Vx, kk - Load kk into the Vx register
+    case 6:
+        PC += 2;
+        V[X] = KK;
+        break;
 
+    // ADD Vx, kk - Add kk to the Vx register
+    case 7:
+        PC += 2;
+        V[X] += KK;
         break;
-    case 6: // LD (load kk into Vx)
-        cpu->PC += 2;
-        cpu->V[x] = kk;
-        break;
-    case 7: // ADD (Vx += kk)
-        cpu->PC += 2;
-        cpu->V[x] += kk;
-        break;
+
     case 8:
-
-        switch (n)
+        switch (N)
         {
-        case 0: // LD (Vx = Vy)
-            cpu->PC += 2;
-            cpu->V[x] = cpu->V[y];
+
+        // LD Vx, Vy - Load Vy into Vx
+        case 0:
+            PC += 2;
+            V[X] = V[Y];
             break;
-        case 1: // OR (Vx |= Vy)
-            cpu->PC += 2;
-            cpu->V[x] |= cpu->V[y];
+
+        // OR Vx, Vy - Load (Vx OR Vy) into Vx
+        case 1:
+            PC += 2;
+            V[X] |= V[Y];
             break;
-        case 2: // AND (Vx &= Vy)
-            cpu->PC += 2;
-            cpu->V[x] &= cpu->V[y];
+
+        // AND Vx, Vy - Load (Vx AND Vy) into Vx
+        case 2:
+            PC += 2;
+            V[X] &= V[Y];
             break;
-        case 3: // XOR (Vx ^= Vy)
-            cpu->PC += 2;
-            cpu->V[x] ^= cpu->V[y];
+
+        // XOR Vx, Vy - Load (Vx XOR Vy) into Vx
+        case 3:
+            PC += 2;
+            V[X] ^= V[Y];
             break;
-        case 4: // ADD (Vx += Vy)
-            cpu->PC += 2;
-            temp = cpu->V[x] + cpu->V[y];
-            cpu->V[x] = temp & 0xFF;
-            cpu->V[0xF] = (temp > 255) ? 1 : 0;
+
+        // ADD Vx, Vy - Add Vy to Vx
+        case 4:
+            PC += 2;
+            temp = V[X] + V[Y];
+            V[X] = temp & 0xFF;
+            V[0xF] = (temp > 255) ? 1 : 0;
             break;
+
+        // SUB Vx, Vy - Subtract Vy from Vx
         case 5: // SUB Vx, Vy
-            cpu->PC += 2;
-
-            cpu->V[x] -= cpu->V[y];
-
-            if (cpu->V[x] > cpu->V[y])
-            {
-                cpu->V[0xF] = 1;
-            }
-            else
-            {
-                cpu->V[0xF] = 0;
-            }
-
+            PC += 2;
+            V[X] -= V[Y];
+            V[0xF] = (V[X] > V[Y]);
             break;
-            // case 6:
-            //     break;
-            // case 7:
-            //     break;
-            // case 0xE:
-            //     break;
+        case 6:
+            // TODO
+            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            break;
+        case 7:
+            // TODO
+            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            break;
+        case 0xE:
+            // TODO
+            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            break;
 
+        // Invalid 8-type opcode
         default:
-            DEBUG_PRINT("NOT IMPLEMENTED: %04X\r\n", opcode);
-            exit(1);
-            break;
+            return CHIP8_ERROR_INVALID_OPCODE;
         }
 
         break;
-    case 9: // SNE Vx, Vy
 
-        cpu->PC += 2;
-
-        if (cpu->V[x] != cpu->V[y])
-        {
-            cpu->PC += 2;
-        }
-
+    // SNE Vx, Vy - Skip next instruction if Vx does not equal Vy
+    // Note: this is technically only a valid opcode when N == 0, not checking for that
+    case 9:
+        PC += 2;
+        if (V[X] != V[Y])
+            PC += 2;
         break;
-    case 0xA: // LD I, nnn
-        cpu->PC += 2;
-        cpu->I = nnn;
+
+    // LD I, NNN - Load address into I
+    case 0xA:
+        PC += 2;
+        I = NNN;
         break;
+
     case 0xB:
-        DEBUG_PRINT("NOT IMPLEMENTED: %04X\r\n", opcode);
-        exit(1);
+        // TODO
+        return CHIP8_ERROR_UNSUPPORTED_OPCODE;
         break;
-    case 0xC: // RND Vx, byte
-        cpu->PC += 2;
 
-        uint8_t r = rand() % 0xFF;
-
-        cpu->V[x] = r & kk;
-
+    // RAND Vx, kk - Vx is set to (random byte AND kk)
+    case 0xC:
+        PC += 2;
+        V[X] = random_byte() & KK;
         break;
+
+    // DRW Vx, Vy, nibble
     case 0xD:
-        cpu->PC += 2;
+        PC += 2;
 
         // TODO: this does not handle sprites wrapping off screen
         // TODO: this does not properly set Vf flag
 
-        // Read n bytes from memory at I
-        uint8_t *sprite = &cpu->Memory[cpu->I];
-
-        for (int i = 0; i < n; i++)
+        for (i = 0; i < N; ++i)
         {
-            for (int j = 0; j < 8; j++)
-            {
-                uint8_t sx = cpu->V[x] + j;
-                uint8_t sy = cpu->V[y] + i;
-
-                if (sx < CHIP8_SCREEN_WIDTH && sy < CHIP8_SCREEN_HEIGHT)
-                {
-                    cpu->Screen[sx][sy] ^= sprite[i] & (1 << (7 - j));
-                }
-            }
+            draw_sprite_line(Memory[I + i], V[X], V[Y] + i);
         }
 
         break;
+
     case 0xE:
 
-        switch (kk)
+        switch (KK)
         {
-        case 0x9E: // SKP Vx
-            cpu->PC += 2;
-            DEBUG_PRINT("TODO: SKP if key Vx is pressed\r\n");
+        case 0x9E:
+            // TODO
+            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
             break;
+
         case 0xA1:
-            cpu->PC += 2; // SKNP Vx
-            DEBUG_PRINT("TODO: SKP if key Vx is NOT pressed\r\n");
+            // TODO
+            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
             break;
-            break;
+
+        // Invalid E-type opcode
         default:
-            DEBUG_PRINT("NOT IMPLEMENTED: %04X\r\n", opcode);
-            exit(1);
-            break;
+            return CHIP8_ERROR_INVALID_OPCODE;
         }
 
         break;
+
     case 0xF:
-        switch (kk)
+        switch (KK)
         {
-        case 0x07: // LD Vx, DT
-            cpu->PC += 2;
-            cpu->V[x] = cpu->DelayTimer(0);
-
+        case 0x07:
+            // TODO
+            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
             break;
-        case 0x15: // LD DT, Vx
-            cpu->PC += 2;
-            cpu->DelayTimer(cpu->V[x]);
 
+        case 0x15:
+            // TODO
+            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            break;
+
+        // ADD I, Vx - Add Vx to I
         case 0x1E: // ADD I, Vx
-            cpu->PC += 2;
-            cpu->I += cpu->V[x];
+            PC += 2;
+            I += V[X];
             break;
 
-            break;
-        case 0x29: // LD F, Vx
-            cpu->PC += 2;
-            // Set I = memory location where the sprite for value of Vx is
-
-            cpu->I = cpu->V[x] * 5;
-
-            break;
-        case 0x33: //LD B, Vx
-            cpu->PC += 2;
-            cpu->Memory[cpu->I] = cpu->V[x] / 100;
-            cpu->Memory[cpu->I + 1] = (cpu->V[x] / 100) % 10;
-            cpu->Memory[cpu->I + 2] = (cpu->V[x] % 100) % 10;
+        // LD F, Vx - Set I to location of sprite for digit Vx
+        case 0x29:
+            PC += 2;
+            I = SpriteLookup[V[X]];
             break;
 
+        // LD B, Vx - Store BCD of Vx in I, I + 1, and I + 2
+        case 0x33:
+            // TODO: This is probably really slow
+            PC += 2;
+            Memory[I] = V[X] / 100;
+            Memory[I + 1] = (V[X] / 100) % 10;
+            Memory[I + 2] = (V[X] % 100) % 10;
+            break;
+
+        // LD [I], Vx - Store registers Vo through Vx in memory starting at address I
         case 0x55:
-            cpu->PC += 2;
-
-            memcpy(&cpu->Memory[cpu->I], cpu->V, x + 1);
-
-        case 0x65: // LD Vx, [I]
-            cpu->PC += 2;
-
-            // TODO: include x or not?
-            memcpy(cpu->V, &cpu->Memory[cpu->I], x + 1);
-
+            PC += 2;
+            memcpy(&Memory[I], V, X + 1);
             break;
 
+        // LD Vx, [I] - Read registers V0 through Vx from memory starting at address I
+        case 0x65:
+            PC += 2;
+            memcpy(V, &Memory[I], X + 1);
+            break;
+
+        // Invalid F-type opcode
         default:
-            DEBUG_PRINT("NOT IMPLEMENTED: %04X\r\n", opcode);
-            exit(1);
-            break;
+            return CHIP8_ERROR_INVALID_OPCODE;
         }
 
         break;
-    default:
-        DEBUG_PRINT("NOT IMPLEMENTED: %04X\r\n", opcode);
-        cpu->PC += 2;
 
-        break;
+    // Invalid opcode
+    default:
+        return CHIP8_ERROR_INVALID_OPCODE;
     }
+
+    return CHIP8_SUCCESS;
 }

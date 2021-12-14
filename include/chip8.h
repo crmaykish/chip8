@@ -4,51 +4,41 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define DEBUG_PRINT(...) printf(__VA_ARGS__)
-
-#define MEMORY_SIZE 4096
-#define REGISTER_COUNT 16
-#define STACK_SIZE 16
-#define PC_START 0x200
+// === CHIP-8 System Definitions === //
+#define CHIP8_MEM_SIZE 4096
+#define CHIP8_REG_COUNT 16
+#define CHIP_8_STACK_SIZE 16
+#define CHIP8_PC_START 0x200
 #define CHIP8_SCREEN_WIDTH 64
 #define CHIP8_SCREEN_HEIGHT 32
 
-static const uint8_t FONT[16][5] = {
-    {0xF0, 0x90, 0x90, 0x90, 0xF0}, // 0
-    {0x20, 0x60, 0x20, 0x20, 0x70}, // 1
-    {0xF0, 0x10, 0xF0, 0x80, 0xF0}, // 2
-    {0xF0, 0x10, 0xF0, 0x10, 0xF0}, // 3
-    {0x90, 0x90, 0xF0, 0x10, 0x10}, // 4
-    {0xF0, 0x80, 0xF0, 0x10, 0xF0}, // 5
-    {0xF0, 0x80, 0xF0, 0x90, 0xF0}, // 6
-    {0xF0, 0x10, 0x20, 0x40, 0x40}, // 7
-    {0xF0, 0x90, 0xF0, 0x90, 0xF0}, // 8
-    {0xF0, 0x90, 0xF0, 0x10, 0xF0}, // 9
-    {0xF0, 0x90, 0xF0, 0x90, 0x90}, // A
-    {0xE0, 0x90, 0xE0, 0x90, 0xE0}, // B
-    {0xF0, 0x80, 0x80, 0x80, 0xF0}, // C
-    {0xE0, 0x90, 0x90, 0x90, 0xE0}, // D
-    {0xF0, 0x80, 0xF0, 0x80, 0xF0}, // E
-    {0xF0, 0x80, 0xF0, 0x80, 0x80}  // F
-};
+#define CHIP8_ROM_MAX_SIZE (CHIP8_MEM_SIZE - CHIP8_PC_START)
 
-typedef struct
-{
-    // TODO: union the memory map to more closely resemble the original hardware
-    uint8_t V[REGISTER_COUNT];
-    uint16_t I;
-    uint16_t PC;
-    uint8_t StackPointer;
-    uint16_t Stack[STACK_SIZE];
-    uint8_t Memory[MEMORY_SIZE];
-    bool Screen[CHIP8_SCREEN_WIDTH][CHIP8_SCREEN_HEIGHT];
-    uint8_t (*DelayTimer)(uint8_t);
-    // TODO: sound timer
-    // TODO: input
-} chip8_cpu_t;
+// === Status codes === //
+typedef uint8_t chip8_status_e;
+#define CHIP8_SUCCESS 0
+#define CHIP8_ERROR_ROM_POINTER_NULL 1
+#define CHIP8_ERROR_ROM_TOO_BIG 2
+#define CHIP8_ERROR_INVALID_OPCODE 3
+#define CHIP8_ERROR_UNSUPPORTED_OPCODE 4
 
-void chip8_init(chip8_cpu_t *cpu, uint8_t (*delay_timer)(uint8_t));
+// TODO
+void chip8_init(uint8_t (*random_byte_func)(), void (*draw_byte_func)(uint8_t, uint8_t, uint8_t));
 
-void chip8_cycle(chip8_cpu_t *cpu);
+/**
+ * @brief Fetch and execute one instruction from memory
+ * 
+ * @return chip8_status_e CHIP8_SUCCESS if the opcode completed, otherwise an error code
+ */
+chip8_status_e chip8_cycle();
+
+/**
+ * @brief Load a CHIP-8 rom binary into the emulator's system memory starting at location 0x200
+ * 
+ * @param rom ROM file byte array
+ * @param bytes size of the ROM file in bytes
+ * @return chip8_status_e CHIP8_STATUS_SUCCESS if ROM is loaded, otherwise an error code corresponding to the problem
+ */
+chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes);
 
 #endif
