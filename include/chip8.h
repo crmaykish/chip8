@@ -22,6 +22,7 @@ typedef uint8_t chip8_status_e;
 #define CHIP8_ERROR_ROM_TOO_BIG 2
 #define CHIP8_ERROR_INVALID_OPCODE 3
 #define CHIP8_ERROR_UNSUPPORTED_OPCODE 4
+#define CHIP8_STATUS_EXIT 5
 
 /**
  * @brief Initialize the CHIP-8 emulator and set up the necessary callback functions for I/O
@@ -29,7 +30,10 @@ typedef uint8_t chip8_status_e;
  * @param random_byte_func Function that returns a random byte
  * @param draw_byte_func Function that draws a byte on the screen at x, y
  */
-void chip8_init(uint8_t (*random_byte_func)(), void (*draw_byte_func)(uint8_t, uint8_t, uint8_t));
+void chip8_init(uint8_t (*random_byte_func)(),
+                void (*draw_byte_func)(uint8_t, uint8_t, uint8_t),
+                bool (*key_pressed_func)(uint8_t),
+                void (*clear_screen_func)());
 
 /**
  * @brief Fetch and execute one instruction from memory

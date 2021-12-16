@@ -12,6 +12,10 @@ static uint8_t Screen[CHIP8_SCREEN_WIDTH][CHIP8_SCREEN_HEIGHT] = {{0}};
 
 static uint8_t rom[CHIP8_ROM_MAX_SIZE] = {0};
 
+bool keys[16] = {false};
+
+bool running = true;
+
 SDL_Window *window;
 SDL_Renderer *renderer;
 
@@ -38,6 +42,89 @@ static void draw_sprite_line(uint8_t b, uint8_t x, uint8_t y)
     update_screen();
 }
 
+static bool key_pressed(uint8_t index)
+{
+    return keys[index];
+}
+
+static void clear_screen()
+{
+    memset(Screen, 0, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
+}
+
+void poll_input()
+{
+    SDL_Event e;
+    bool keyOn = false;
+
+    // Check for user input
+    SDL_PollEvent(&e);
+
+    if (e.type == SDL_QUIT)
+    {
+        running = false;
+        return;
+    }
+    else if (e.type == SDL_KEYDOWN)
+    {
+        keyOn = true;
+    }
+    else if (e.type == SDL_KEYUP)
+    {
+        keyOn = false;
+    }
+    else
+    {
+        return;
+    }
+
+    switch (e.key.keysym.sym)
+    {
+    case SDLK_0:
+        keys[0] = keyOn;
+        break;
+
+    case SDLK_1:
+        keys[1] = keyOn;
+        break;
+
+    case SDLK_2:
+        keys[2] = keyOn;
+        break;
+
+    case SDLK_3:
+        keys[3] = keyOn;
+        break;
+
+    case SDLK_4:
+        keys[4] = keyOn;
+        break;
+
+    case SDLK_5:
+        keys[5] = keyOn;
+        break;
+
+    case SDLK_6:
+        keys[6] = keyOn;
+        break;
+
+    case SDLK_7:
+        keys[7] = keyOn;
+        break;
+
+    case SDLK_8:
+        keys[8] = keyOn;
+        break;
+
+    case SDLK_9:
+        keys[9] = keyOn;
+        break;
+
+    default:
+        break;
+    }
+}
+
 int main(int argc, char **argv)
 {
     // Seed the random number generator
@@ -53,39 +140,33 @@ int main(int argc, char **argv)
     size_t rom_size = fread(rom, 1, sizeof(rom), rom_file);
 
     // Initialize CHIP-8 emulator core
-    chip8_init(&random_byte, &draw_sprite_line);
+    chip8_init(&random_byte, &draw_sprite_line, &key_pressed, &clear_screen);
+
+    chip8_status_e status;
 
     // Copy ROM file into emulator memory
-    chip8_load_rom(rom, rom_size);
+    status = chip8_load_rom(rom, rom_size);
 
     // Execute op codes from memory
 
-    SDL_Event e;
-
-    bool running = true;
-
     printf("Starting CHIP-8 emulation...\r\n");
+
+    bool keyOn = false;
 
     while (running)
     {
-        // Check for user input
-        SDL_PollEvent(&e);
-
-        switch (e.type)
-        {
-        case SDL_QUIT:
-            running = false;
-            break;
-
-        default:
-            break;
-        }
+        poll_input();
 
         // Fetch and execute CHIP-8 instruction
-        chip8_cycle();
+        status = chip8_cycle();
+
+        if (status != CHIP8_SUCCESS)
+        {
+            running = false;
+        }
     }
 
-    printf("Exiting\r\n");
+    printf("Exiting with status: %d\r\n", status);
 
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

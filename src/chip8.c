@@ -1,11 +1,17 @@
 #include "chip8.h"
 #include <string.h>
 
+#include <stdio.h>
+
 // === Callbacks === //
 
 static uint8_t (*random_byte)();
 
 static void (*draw_sprite_line)(uint8_t, uint8_t, uint8_t);
+
+static bool (*key_pressed)(uint8_t index);
+
+static void (*clear_screen)();
 
 // === CHIP-8 System State === /
 
@@ -78,7 +84,11 @@ static uint8_t i;
 
 // === Emulator implementation === //
 
-void chip8_init(uint8_t (*random_byte_func)(), void (*draw_byte_func)(uint8_t, uint8_t, uint8_t))
+void chip8_init(uint8_t (*random_byte_func)(),
+                void (*draw_byte_func)(uint8_t, uint8_t, uint8_t),
+                bool (*key_pressed_func)(uint8_t),
+                void (*clear_screen_func)())
+
 {
     I = 0;
     PC = CHIP8_PC_START;
@@ -92,6 +102,8 @@ void chip8_init(uint8_t (*random_byte_func)(), void (*draw_byte_func)(uint8_t, u
 
     random_byte = random_byte_func;
     draw_sprite_line = draw_byte_func;
+    key_pressed = key_pressed_func;
+    clear_screen = clear_screen_func;
 }
 
 chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes)
@@ -116,6 +128,8 @@ chip8_status_e chip8_cycle()
     // Fetch opcode from system memory at the program counter
     FETCH();
 
+    printf("%04X: %02X%02X\r\n", PC, op_msb, op_lsb);
+
     // Handle the current opcode based on its type
     switch (TYPE)
     {
@@ -124,14 +138,14 @@ chip8_status_e chip8_cycle()
         {
         // CLS - clear the screen
         case 0xE0:
-            // TODO: clear the screen
             PC += 2;
+            clear_screen();
             break;
 
         // RET - return from subroutine
         case 0xEE:
-            StackPointer--;
             PC = Stack[StackPointer];
+            StackPointer--;
             break;
 
         // Invalid 0-type opcode
@@ -148,8 +162,8 @@ chip8_status_e chip8_cycle()
 
     // CALL nnn - call a subroutine at nnn
     case 2:
-        Stack[StackPointer] = PC;
         StackPointer++;
+        Stack[StackPointer] = PC;
         PC = NNN;
         break;
 
@@ -229,17 +243,24 @@ chip8_status_e chip8_cycle()
             V[X] -= V[Y];
             V[0xF] = (V[X] > V[Y]);
             break;
+
+        // SHR Vx, {Vf}
         case 6:
-            // TODO
-            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            PC += 2;
+            V[0xF] = ((V[X] & 0x1) > 0);
+            V[X] /= 2;
             break;
+
         case 7:
             // TODO
             return CHIP8_ERROR_UNSUPPORTED_OPCODE;
             break;
+
+        // SHL Vx, {Vf} - Shift Vx left, carry into Vf if necessary
         case 0xE:
-            // TODO
-            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            PC += 2;
+            V[0xF] = ((V[X] & 0x10000000) > 0);
+            V[X] *= 2;
             break;
 
         // Invalid 8-type opcode
@@ -292,14 +313,18 @@ chip8_status_e chip8_cycle()
 
         switch (KK)
         {
+        // SKP Vx - Skip next instruction if key with value Vx is pressed
         case 0x9E:
-            // TODO
-            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            PC += 2;
+            if (key_pressed(V[X]))
+                PC += 2;
             break;
 
+        // SKNP Vx - Skip next instruction if key with value Vx is not pressed
         case 0xA1:
-            // TODO
-            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            PC += 2;
+            if (!key_pressed(V[X]))
+                PC += 2;
             break;
 
         // Invalid E-type opcode
@@ -313,6 +338,11 @@ chip8_status_e chip8_cycle()
         switch (KK)
         {
         case 0x07:
+            // TODO
+            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            break;
+
+        case 0x0A:
             // TODO
             return CHIP8_ERROR_UNSUPPORTED_OPCODE;
             break;
