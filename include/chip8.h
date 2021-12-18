@@ -23,6 +23,8 @@ typedef uint8_t chip8_status_e;
 #define CHIP8_ERROR_INVALID_OPCODE 3
 #define CHIP8_ERROR_UNSUPPORTED_OPCODE 4
 #define CHIP8_STATUS_EXIT 5
+#define CHIP8_WAITING_FOR_KEYPRESS 6
+#define CHIP8_STATUS_RUNNING 7
 
 /**
  * @brief Initialize the CHIP-8 emulator and set up the necessary callback functions for I/O
@@ -50,5 +52,19 @@ chip8_status_e chip8_cycle();
  * @return chip8_status_e CHIP8_STATUS_SUCCESS if ROM is loaded, otherwise an error code corresponding to the problem
  */
 chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes);
+
+/**
+ * @brief Alert the CHIP-8 emulator that a key was pressed and that execution should resume
+ * 
+ * @param key Value of the input key (0-F)
+ */
+void chip8_key_interrupt(uint8_t key);
+
+/**
+ * @brief Decrement the CHIP-8 sound and delay timersby 1 until they reach 0
+ * 
+ * This should be called at a rate of 60Hz
+ */
+void chip8_tick_timers();
 
 #endif

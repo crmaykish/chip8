@@ -52,9 +52,10 @@ static void clear_screen()
     memset(Screen, 0, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
 }
 
-void poll_input()
+uint8_t poll_input()
 {
     SDL_Event e;
+    uint8_t key_index;
     bool keyOn = false;
 
     // Check for user input
@@ -63,7 +64,7 @@ void poll_input()
     if (e.type == SDL_QUIT)
     {
         running = false;
-        return;
+        return 0xFF;
     }
     else if (e.type == SDL_KEYDOWN)
     {
@@ -75,54 +76,83 @@ void poll_input()
     }
     else
     {
-        return;
+        return 0xFF;
     }
 
     switch (e.key.keysym.sym)
     {
     case SDLK_0:
-        keys[0] = keyOn;
+        key_index = 0;
         break;
 
     case SDLK_1:
-        keys[1] = keyOn;
+        key_index = 1;
         break;
 
     case SDLK_2:
-        keys[2] = keyOn;
+        key_index = 2;
         break;
 
     case SDLK_3:
-        keys[3] = keyOn;
+        key_index = 3;
         break;
 
     case SDLK_4:
-        keys[4] = keyOn;
+        key_index = 4;
         break;
 
     case SDLK_5:
-        keys[5] = keyOn;
+        key_index = 5;
         break;
 
     case SDLK_6:
-        keys[6] = keyOn;
+        key_index = 6;
         break;
 
     case SDLK_7:
-        keys[7] = keyOn;
+        key_index = 7;
         break;
 
     case SDLK_8:
-        keys[8] = keyOn;
+        key_index = 8;
         break;
 
     case SDLK_9:
-        keys[9] = keyOn;
+        key_index = 9;
+        break;
+
+    case SDLK_a:
+        key_index = 0xA;
+        break;
+
+    case SDLK_b:
+        key_index = 0xB;
+        break;
+
+    case SDLK_c:
+        key_index = 0xC;
+        break;
+
+    case SDLK_d:
+        key_index = 0xD;
+        break;
+
+    case SDLK_e:
+        key_index = 0xE;
+        break;
+
+    case SDLK_f:
+        key_index = 0xF;
         break;
 
     default:
+        return 0xFF;
         break;
     }
+
+    keys[key_index] = keyOn;
+
+    return keyOn ? key_index : 0xFF;
 }
 
 int main(int argc, char **argv)
@@ -188,16 +218,43 @@ int main(int argc, char **argv)
 
     bool keyOn = false;
 
+    status = CHIP8_STATUS_RUNNING;
+
+    unsigned int time = 0;
+    unsigned int last_tick_time = 0;
+
+    // TODO: emulator should manage the running variable, not the front-end
+
     while (running)
     {
-        poll_input();
+        if (status == CHIP8_STATUS_RUNNING)
+        {
+            status = chip8_cycle();
+            poll_input();
+        }
+        else if (status == CHIP8_WAITING_FOR_KEYPRESS)
+        {
+            uint8_t key = poll_input();
 
-        // Fetch and execute CHIP-8 instruction
-        status = chip8_cycle();
-
-        if (status != CHIP8_SUCCESS)
+            if (key != 0xFF)
+            {
+                printf("input: %x\r\n", key);
+                chip8_key_interrupt(key);
+                status = CHIP8_STATUS_RUNNING;
+            }
+        }
+        else
         {
             running = false;
+        }
+
+        time = SDL_GetTicks();
+
+        if (time - last_tick_time > 17)
+        {
+            chip8_tick_timers();
+            update_screen();
+            last_tick_time = time;
         }
     }
 
@@ -222,7 +279,7 @@ void update_screen()
         {
             if (Screen[i][j])
             {
-                SDL_Rect rect = {i * WINDOW_SCALE, j * WINDOW_SCALE, WINDOW_SCALE, WINDOW_SCALE};
+                SDL_Rect rect = {i * WINDOW_SCALE + 1, j * WINDOW_SCALE + 1, WINDOW_SCALE - 2, WINDOW_SCALE - 2};
 
                 SDL_RenderFillRect(renderer, &rect);
             }

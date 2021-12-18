@@ -55,11 +55,15 @@ static uint16_t PC;
 static uint16_t Stack[CHIP_8_STACK_SIZE];
 static uint8_t StackPointer;
 
-// TODO: Delay timer
-// TODO: Sound timer
-// TODO: Input "register"
+// Timers
+static uint8_t DelayTimer;
+static uint8_t SoundTimer;
 
 // === Internal emulator state === //
+
+chip8_status_e cycle_status = CHIP8_STATUS_RUNNING;
+
+uint8_t io_reg;
 
 // Current opcode bytes
 static uint8_t op_msb, op_lsb;
@@ -93,6 +97,7 @@ void chip8_init(uint8_t (*random_byte_func)(),
     I = 0;
     PC = CHIP8_PC_START;
     StackPointer = 0;
+    SoundTimer = 0;
     memset(V, 0, CHIP8_REG_COUNT);
     memset(Stack, 0, CHIP_8_STACK_SIZE);
     memset(Memory, 0, CHIP8_MEM_SIZE);
@@ -123,10 +128,27 @@ chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes)
     return CHIP8_SUCCESS;
 }
 
+void chip8_key_interrupt(uint8_t key)
+{
+    V[io_reg] = key;
+    cycle_status = CHIP8_STATUS_RUNNING;
+}
+
+void chip8_tick_timers()
+{
+    if (DelayTimer != 0)
+    {
+        DelayTimer--;
+    }
+
+    if (SoundTimer != 0)
+    {
+        SoundTimer--;
+    }
+}
+
 chip8_status_e chip8_cycle()
 {
-    chip8_status_e cycle_status = CHIP8_SUCCESS;
-
     // Fetch opcode from system memory at the program counter
     FETCH();
 
@@ -162,13 +184,13 @@ chip8_status_e chip8_cycle()
 
     // JP nnn - absolute jump
     case 1:
-        printf("JP %03X", NNN);
+        printf("JP $%03X", NNN);
         PC = NNN;
         break;
 
     // CALL nnn - call a subroutine at nnn
     case 2:
-        printf("CALL %03X", NNN);
+        printf("CALL $%03X", NNN);
         PC += 2; // TODO: I think this is correct, without it, code seems to get stuck in a loop of the first subroutine
         StackPointer++;
         Stack[StackPointer] = PC;
@@ -302,7 +324,7 @@ chip8_status_e chip8_cycle()
 
     // LD I, NNN - Load address into I
     case 0xA:
-        printf("LD I, %03X", NNN);
+        printf("LD I, $%03X", NNN);
         PC += 2;
         I = NNN;
         break;
@@ -321,7 +343,7 @@ chip8_status_e chip8_cycle()
 
     // DRW Vx, Vy, nibble
     case 0xD:
-        printf("DRW V%X, V%x, %X", X, Y, N);
+        printf("DRW V%x, V%x, %X", X, Y, N);
 
         PC += 2;
 
@@ -366,20 +388,33 @@ chip8_status_e chip8_cycle()
     case 0xF:
         switch (KK)
         {
+        // LD Vx, DT
         case 0x07:
-            // TODO
-            cycle_status = CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            printf("LD V%x, DT", X);
+            PC += 2;
+            V[X] = DelayTimer;
             break;
 
         // LD Vx, K - Wait for a key press, load key value into Vx
         case 0x0A:
-            // TODO
-            cycle_status = CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            printf("LD V%x, K");
+            PC += 2;
+            io_reg = X;
+            cycle_status = CHIP8_WAITING_FOR_KEYPRESS;
             break;
 
+        // LD DT, Vx
         case 0x15:
-            // TODO
-            cycle_status = CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            printf("LD DT, V%x", X);
+            PC += 2;
+            DelayTimer = V[X];
+            break;
+
+        // LD ST, Vx
+        case 0x18:
+            printf("LD ST, V%x", X);
+            PC += 2;
+            SoundTimer = V[X];
             break;
 
         // ADD I, Vx - Add Vx to I
@@ -398,12 +433,11 @@ chip8_status_e chip8_cycle()
 
         // LD B, Vx - Store BCD of Vx in I, I + 1, and I + 2
         case 0x33:
-            // TODO: This is probably really slow
-            printf("LD B, V%x", X);
             PC += 2;
-            Memory[I] = V[X] / 100;
-            Memory[I + 1] = (V[X] / 100) % 10;
-            Memory[I + 2] = (V[X] % 100) % 10;
+            Memory[I] = (V[X] / 100) % 10;
+            Memory[I + 1] = (V[X] / 10) % 10;
+            Memory[I + 2] = V[X] % 10;
+
             break;
 
         // LD [I], Vx - Store registers Vo through Vx in memory starting at address I
@@ -433,6 +467,13 @@ chip8_status_e chip8_cycle()
         cycle_status = CHIP8_ERROR_INVALID_OPCODE;
         break;
     }
+
+    printf(" | ");
+
+    // for (int i = 0; i < 16; i++)
+    // {
+    //     printf("V%x = %d, ", i, V[i]);
+    // }
 
     printf("\r\n");
 
