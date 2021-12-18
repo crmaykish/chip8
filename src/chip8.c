@@ -13,6 +13,13 @@ static bool (*key_pressed)(uint8_t index);
 
 static void (*clear_screen)();
 
+// TODO: keep the screen memory internal to the emulator
+// provide callbacks for screen_changed, pixel_drawn, etc.
+
+// TODO: write an assembler/disassembler and some test programs
+
+// TODO: add some unit tests
+
 // === CHIP-8 System State === /
 
 // 4KB of address space
@@ -61,15 +68,15 @@ static uint8_t SoundTimer;
 
 // === Internal emulator state === //
 
-chip8_status_e cycle_status = CHIP8_STATUS_RUNNING;
+static chip8_run_state_e run_state = CHIP8_STATE_RUNNING;
 
-uint8_t io_reg;
+static uint8_t io_reg;
 
 // Current opcode bytes
 static uint8_t op_msb, op_lsb;
 
 // Opcodes are always two bytes long. Fetch and decode consistent pieces of them.
-// Note: These macros depend on the global opcode bytes defined above. They are not portable.
+// Note: These macros depend on the global opcode bytes defined above.
 
 #define FETCH()          \
     op_msb = Memory[PC]; \
@@ -88,12 +95,19 @@ static uint8_t i;
 
 // === Emulator implementation === //
 
-void chip8_init(uint8_t (*random_byte_func)(),
-                void (*draw_byte_func)(uint8_t, uint8_t, uint8_t),
-                bool (*key_pressed_func)(uint8_t),
-                void (*clear_screen_func)())
-
+chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
+                          void (*draw_byte_func)(uint8_t, uint8_t, uint8_t),
+                          bool (*key_pressed_func)(uint8_t),
+                          void (*clear_screen_func)())
 {
+    if (random_byte_func == NULL ||
+        draw_byte_func == NULL ||
+        key_pressed_func == NULL ||
+        clear_screen_func == NULL)
+    {
+        return CHIP8_ERROR;
+    }
+
     I = 0;
     PC = CHIP8_PC_START;
     StackPointer = 0;
@@ -109,18 +123,15 @@ void chip8_init(uint8_t (*random_byte_func)(),
     draw_sprite_line = draw_byte_func;
     key_pressed = key_pressed_func;
     clear_screen = clear_screen_func;
+
+    return CHIP8_SUCCESS;
 }
 
 chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes)
 {
-    if (rom == NULL)
+    if (rom == NULL || bytes > CHIP8_ROM_MAX_SIZE)
     {
-        return CHIP8_ERROR_ROM_POINTER_NULL;
-    }
-
-    if (bytes > CHIP8_ROM_MAX_SIZE)
-    {
-        return CHIP8_ERROR_ROM_TOO_BIG;
+        return CHIP8_ERROR;
     }
 
     memcpy(&Memory[CHIP8_PC_START], rom, bytes);
@@ -130,21 +141,32 @@ chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes)
 
 void chip8_key_interrupt(uint8_t key)
 {
-    V[io_reg] = key;
-    cycle_status = CHIP8_STATUS_RUNNING;
+    if (run_state == CHIP8_STATE_WAIT_FOR_INPUT)
+    {
+        V[io_reg] = key;
+        run_state = CHIP8_STATE_RUNNING;
+    }
 }
 
 void chip8_tick_timers()
 {
-    if (DelayTimer != 0)
+    if (run_state == CHIP8_STATE_RUNNING)
     {
-        DelayTimer--;
-    }
+        if (DelayTimer != 0)
+        {
+            DelayTimer--;
+        }
 
-    if (SoundTimer != 0)
-    {
-        SoundTimer--;
+        if (SoundTimer != 0)
+        {
+            SoundTimer--;
+        }
     }
+}
+
+chip8_run_state_e chip8_get_run_state()
+{
+    return run_state;
 }
 
 chip8_status_e chip8_cycle()
@@ -176,7 +198,7 @@ chip8_status_e chip8_cycle()
 
         // Invalid 0-type opcode
         default:
-            cycle_status = CHIP8_ERROR_INVALID_OPCODE;
+            run_state = CHIP8_STATE_INVALID_OPCODE;
             break;
         }
 
@@ -295,7 +317,7 @@ chip8_status_e chip8_cycle()
 
         case 7:
             // TODO
-            cycle_status = CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            run_state = CHIP8_STATE_UNSUPPORTED_OPCODE;
             break;
 
         // SHL Vx, {Vf} - Shift Vx left, carry into Vf if necessary
@@ -308,7 +330,7 @@ chip8_status_e chip8_cycle()
 
         // Invalid 8-type opcode
         default:
-            cycle_status = CHIP8_ERROR_INVALID_OPCODE;
+            run_state = CHIP8_STATE_INVALID_OPCODE;
         }
 
         break;
@@ -331,7 +353,7 @@ chip8_status_e chip8_cycle()
 
     case 0xB:
         // TODO
-        cycle_status = CHIP8_ERROR_UNSUPPORTED_OPCODE;
+        run_state = CHIP8_STATE_UNSUPPORTED_OPCODE;
         break;
 
     // RAND Vx, kk - Vx is set to (random byte AND kk)
@@ -379,7 +401,7 @@ chip8_status_e chip8_cycle()
 
         // Invalid E-type opcode
         default:
-            cycle_status = CHIP8_ERROR_INVALID_OPCODE;
+            run_state = CHIP8_STATE_INVALID_OPCODE;
             break;
         }
 
@@ -400,7 +422,7 @@ chip8_status_e chip8_cycle()
             printf("LD V%x, K");
             PC += 2;
             io_reg = X;
-            cycle_status = CHIP8_WAITING_FOR_KEYPRESS;
+            run_state = CHIP8_STATE_WAIT_FOR_INPUT;
             break;
 
         // LD DT, Vx
@@ -437,7 +459,6 @@ chip8_status_e chip8_cycle()
             Memory[I] = (V[X] / 100) % 10;
             Memory[I + 1] = (V[X] / 10) % 10;
             Memory[I + 2] = V[X] % 10;
-
             break;
 
         // LD [I], Vx - Store registers Vo through Vx in memory starting at address I
@@ -456,7 +477,7 @@ chip8_status_e chip8_cycle()
 
         // Invalid F-type opcode
         default:
-            cycle_status = CHIP8_ERROR_INVALID_OPCODE;
+            run_state = CHIP8_STATE_INVALID_OPCODE;
             break;
         }
 
@@ -464,7 +485,7 @@ chip8_status_e chip8_cycle()
 
     // Invalid opcode
     default:
-        cycle_status = CHIP8_ERROR_INVALID_OPCODE;
+        run_state = CHIP8_STATE_INVALID_OPCODE;
         break;
     }
 
@@ -477,5 +498,12 @@ chip8_status_e chip8_cycle()
 
     printf("\r\n");
 
-    return cycle_status;
+    if (run_state == CHIP8_STATE_RUNNING || run_state == CHIP8_STATE_WAIT_FOR_INPUT)
+    {
+        return CHIP8_SUCCESS;
+    }
+    else
+    {
+        return CHIP8_ERROR;
+    }
 }

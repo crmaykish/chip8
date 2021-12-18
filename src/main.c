@@ -157,6 +157,12 @@ uint8_t poll_input()
 
 int main(int argc, char **argv)
 {
+    FILE *rom_file;
+    size_t rom_size;
+    time_t t;
+    unsigned int current_time = 0;
+    unsigned int last_tick_time = 0;
+
     if (argv[1] == NULL)
     {
         printf("Must specifiy a ROM file, e.g. chip8emu <rom_file>\r\n");
@@ -166,7 +172,7 @@ int main(int argc, char **argv)
     printf("Loading ROM file: %s...\r\n", argv[1]);
 
     // Load the ROM file from disk
-    FILE *rom_file = fopen(argv[1], "rb");
+    rom_file = fopen(argv[1], "rb");
 
     if (rom_file == NULL)
     {
@@ -174,7 +180,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    size_t rom_size = fread(rom, 1, sizeof(rom), rom_file);
+    rom_size = fread(rom, 1, sizeof(rom), rom_file);
 
     if (rom_size == 0)
     {
@@ -182,14 +188,10 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    printf("Seeding the random number generator...\r\n");
     // Seed the random number generator
-    time_t t;
     srand((unsigned)time(&t));
 
     // Set up the SDL window and renderer
-    printf("Setting up SDL...\r\n");
-
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
     {
         printf("Could not initialize SDL: %s\r\n", SDL_GetError());
@@ -203,62 +205,63 @@ int main(int argc, char **argv)
     }
 
     // Initialize CHIP-8 emulator core
-    printf("Creating the CHIP-8 emulator core...\r\n");
-
-    chip8_init(&random_byte, &draw_sprite_line, &key_pressed, &clear_screen);
-
-    chip8_status_e status;
+    if (chip8_init(&random_byte, &draw_sprite_line, &key_pressed, &clear_screen) != CHIP8_SUCCESS)
+    {
+        printf("Failed to create CHIP-8 emulator core.\r\n");
+    }
 
     // Copy ROM file into emulator memory
-    printf("Copying ROM into CHIP-8 system memory...\r\n");
-    status = chip8_load_rom(rom, rom_size);
+    if (chip8_load_rom(rom, rom_size) != CHIP8_SUCCESS)
+    {
+        printf("Failed to copy ROM into CHIP-8 system memory.\r\n");
+        return 1;
+    }
 
-    // Execute op codes from memory
     printf("Starting CHIP-8 emulation...\r\n");
-
-    bool keyOn = false;
-
-    status = CHIP8_STATUS_RUNNING;
-
-    unsigned int time = 0;
-    unsigned int last_tick_time = 0;
-
-    // TODO: emulator should manage the running variable, not the front-end
 
     while (running)
     {
-        if (status == CHIP8_STATUS_RUNNING)
+        chip8_run_state_e state = chip8_get_run_state();
+
+        switch (state)
         {
-            status = chip8_cycle();
+        case CHIP8_STATE_RUNNING:
             poll_input();
-        }
-        else if (status == CHIP8_WAITING_FOR_KEYPRESS)
-        {
+
+            if (chip8_cycle() != CHIP8_SUCCESS)
+            {
+                printf("Failed to execute CPU cycle.\r\n");
+                running = false;
+            }
+
+            break;
+        case CHIP8_STATE_WAIT_FOR_INPUT:
             uint8_t key = poll_input();
 
             if (key != 0xFF)
             {
-                printf("input: %x\r\n", key);
                 chip8_key_interrupt(key);
-                status = CHIP8_STATUS_RUNNING;
             }
-        }
-        else
-        {
+
+            break;
+
+        default:
             running = false;
+            break;
         }
 
-        time = SDL_GetTicks();
+        // Update the timers and redraw the screen at 60Hz
+        current_time = SDL_GetTicks();
 
-        if (time - last_tick_time > 17)
+        if (current_time - last_tick_time > 17)
         {
             chip8_tick_timers();
             update_screen();
-            last_tick_time = time;
+            last_tick_time = current_time;
         }
     }
 
-    printf("Exiting with status: %d\r\n", status);
+    printf("Exiting\r\n");
 
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
