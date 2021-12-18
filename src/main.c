@@ -8,8 +8,6 @@
 #define WINDOW_RES_W (CHIP8_SCREEN_WIDTH * WINDOW_SCALE)
 #define WINDOW_RES_H (CHIP8_SCREEN_HEIGHT * WINDOW_SCALE)
 
-static uint8_t Screen[CHIP8_SCREEN_WIDTH][CHIP8_SCREEN_HEIGHT] = {{0}};
-
 static uint8_t rom[CHIP8_ROM_MAX_SIZE] = {0};
 
 bool keys[16] = {false};
@@ -28,28 +26,9 @@ static uint8_t random_byte()
     return (uint8_t)(rand() % 0xFF);
 }
 
-static void draw_sprite_line(uint8_t b, uint8_t x, uint8_t y)
-{
-    for (int i = 0; i < 8; i++)
-    {
-        if (x + i < CHIP8_SCREEN_WIDTH)
-        {
-            Screen[x + i][y] ^= (b & (1 << (7 - i)) ? 1 : 0);
-        }
-    }
-
-    // TODO: It's slow AF to update the whole screen whenever anything changes
-    update_screen();
-}
-
 static bool key_pressed(uint8_t index)
 {
     return keys[index];
-}
-
-static void clear_screen()
-{
-    memset(Screen, 0, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
 }
 
 uint8_t poll_input()
@@ -205,7 +184,7 @@ int main(int argc, char **argv)
     }
 
     // Initialize CHIP-8 emulator core
-    if (chip8_init(&random_byte, &draw_sprite_line, &key_pressed, &clear_screen) != CHIP8_SUCCESS)
+    if (chip8_init(&random_byte, &key_pressed, &update_screen) != CHIP8_SUCCESS)
     {
         printf("Failed to create CHIP-8 emulator core.\r\n");
     }
@@ -280,7 +259,7 @@ void update_screen()
     {
         for (int j = 0; j < CHIP8_SCREEN_HEIGHT; j++)
         {
-            if (Screen[i][j])
+            if (chip8_get_screen()[(j * CHIP8_SCREEN_WIDTH) + i])
             {
                 SDL_Rect rect = {i * WINDOW_SCALE + 1, j * WINDOW_SCALE + 1, WINDOW_SCALE - 2, WINDOW_SCALE - 2};
 

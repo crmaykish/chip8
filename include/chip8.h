@@ -28,13 +28,14 @@ typedef uint8_t chip8_run_state_e;
 #define CHIP8_STATE_UNSUPPORTED_OPCODE 4
 
 chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
-                void (*draw_byte_func)(uint8_t, uint8_t, uint8_t),
-                bool (*key_pressed_func)(uint8_t),
-                void (*clear_screen_func)());
+                          bool (*key_pressed_func)(uint8_t),
+                          void (*draw_screen_func)());
 
 chip8_status_e chip8_cycle();
 
 chip8_run_state_e chip8_get_run_state();
+
+bool *chip8_get_screen();
 
 /**
  * @brief Load a CHIP-8 rom binary into the emulator's system memory starting at location 0x200

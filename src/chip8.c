@@ -7,11 +7,9 @@
 
 static uint8_t (*random_byte)();
 
-static void (*draw_sprite_line)(uint8_t, uint8_t, uint8_t);
-
 static bool (*key_pressed)(uint8_t index);
 
-static void (*clear_screen)();
+static void (*draw_screen)();
 
 // TODO: keep the screen memory internal to the emulator
 // provide callbacks for screen_changed, pixel_drawn, etc.
@@ -24,6 +22,9 @@ static void (*clear_screen)();
 
 // 4KB of address space
 static uint8_t Memory[CHIP8_MEM_SIZE];
+
+// 64x32 monochrome display
+static bool Screen[CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT];
 
 // Bitmap font - this goes into the beginning of memory space
 static uint8_t Font[] = {
@@ -96,14 +97,12 @@ static uint8_t i;
 // === Emulator implementation === //
 
 chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
-                          void (*draw_byte_func)(uint8_t, uint8_t, uint8_t),
                           bool (*key_pressed_func)(uint8_t),
-                          void (*clear_screen_func)())
+                          void (*draw_screen_func)())
 {
     if (random_byte_func == NULL ||
-        draw_byte_func == NULL ||
         key_pressed_func == NULL ||
-        clear_screen_func == NULL)
+        draw_screen_func == NULL)
     {
         return CHIP8_ERROR;
     }
@@ -120,9 +119,8 @@ chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
     memcpy(Memory, Font, sizeof(Font));
 
     random_byte = random_byte_func;
-    draw_sprite_line = draw_byte_func;
     key_pressed = key_pressed_func;
-    clear_screen = clear_screen_func;
+    draw_screen = draw_screen_func;
 
     return CHIP8_SUCCESS;
 }
@@ -169,6 +167,11 @@ chip8_run_state_e chip8_get_run_state()
     return run_state;
 }
 
+bool *chip8_get_screen()
+{
+    return Screen;
+}
+
 chip8_status_e chip8_cycle()
 {
     // Fetch opcode from system memory at the program counter
@@ -186,7 +189,8 @@ chip8_status_e chip8_cycle()
         case 0xE0:
             printf("CLS");
             PC += 2;
-            clear_screen();
+            memset(Screen, 0, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
+            draw_screen();
             break;
 
         // RET - return from subroutine
@@ -369,13 +373,41 @@ chip8_status_e chip8_cycle()
 
         PC += 2;
 
-        // TODO: this does not handle sprites wrapping off screen
-        // TODO: this does not properly set Vf flag
+        V[0xF] = 0;
 
         for (i = 0; i < N; ++i)
         {
-            draw_sprite_line(Memory[I + i], V[X], V[Y] + i);
+            uint8_t b = Memory[I + i];
+            uint8_t x = V[X];
+            uint8_t y = V[Y] + i;
+
+            bool prev_pixel;
+            bool new_pixel;
+
+            // TODO: this does not handle sprites wrapping off screen
+
+            for (int j = 0; j < 8; ++j)
+            {
+                if (x + j < CHIP8_SCREEN_WIDTH) // TODO: this is a hack to avoid dealing with wrapping
+                {
+                    prev_pixel = Screen[(x + j) + (y * CHIP8_SCREEN_WIDTH)];
+
+                    new_pixel = (b & (1 << (7 - j)) ? 1 : 0);
+
+                    Screen[(x + j) + (y * CHIP8_SCREEN_WIDTH)] ^= new_pixel;
+
+                    if (prev_pixel && !new_pixel)
+                    {
+                        V[0xF] = 1;
+                    }
+
+                    // TODO: it's probably going to be more efficient to call a set_pixel(x, y) function
+                    // here instead of redrawing the whole screen
+                }
+            }
         }
+
+        draw_screen();
 
         break;
 
