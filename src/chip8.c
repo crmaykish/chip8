@@ -125,10 +125,12 @@ chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes)
 
 chip8_status_e chip8_cycle()
 {
+    chip8_status_e cycle_status = CHIP8_SUCCESS;
+
     // Fetch opcode from system memory at the program counter
     FETCH();
 
-    printf("%04X: %02X%02X\r\n", PC, op_msb, op_lsb);
+    printf("%04X: OP: %02X%02X, I: %03X, Vf: %02X | ", PC, op_msb, op_lsb, I, V[0xF]);
 
     // Handle the current opcode based on its type
     switch (TYPE)
@@ -138,30 +140,36 @@ chip8_status_e chip8_cycle()
         {
         // CLS - clear the screen
         case 0xE0:
+            printf("CLS");
             PC += 2;
             clear_screen();
             break;
 
         // RET - return from subroutine
         case 0xEE:
+            printf("RET");
             PC = Stack[StackPointer];
             StackPointer--;
             break;
 
         // Invalid 0-type opcode
         default:
-            return CHIP8_ERROR_INVALID_OPCODE;
+            cycle_status = CHIP8_ERROR_INVALID_OPCODE;
+            break;
         }
 
         break;
 
     // JP nnn - absolute jump
     case 1:
+        printf("JP %03X", NNN);
         PC = NNN;
         break;
 
     // CALL nnn - call a subroutine at nnn
     case 2:
+        printf("CALL %03X", NNN);
+        PC += 2; // TODO: I think this is correct, without it, code seems to get stuck in a loop of the first subroutine
         StackPointer++;
         Stack[StackPointer] = PC;
         PC = NNN;
@@ -169,6 +177,7 @@ chip8_status_e chip8_cycle()
 
     // SE Vx, kk - Skip next instruction if Vx equals kk
     case 3:
+        printf("SE V%x, $%X", X, KK);
         PC += 2;
         if (V[X] == KK)
             PC += 2;
@@ -176,6 +185,7 @@ chip8_status_e chip8_cycle()
 
     // SNE Vx, kk - Skip next instruction if Vx does not equal kk
     case 4:
+        printf("SNE V%x, $%X", X, KK);
         PC += 2;
         if (V[X] != KK)
             PC += 2;
@@ -184,6 +194,7 @@ chip8_status_e chip8_cycle()
     // SE Vx, Vy - Skip next instruction if Vx == Vy
     // Note: this is technically only a valid opcode when N == 0, not checking for that
     case 5:
+        printf("SE V%x, V%x", X, Y);
         PC += 2;
         if (V[X] == V[Y])
             PC += 2;
@@ -191,12 +202,14 @@ chip8_status_e chip8_cycle()
 
     // LD Vx, kk - Load kk into the Vx register
     case 6:
+        printf("LD V%x, $%X", X, KK);
         PC += 2;
         V[X] = KK;
         break;
 
     // ADD Vx, kk - Add kk to the Vx register
     case 7:
+        printf("ADD V%x, $%X", X, KK);
         PC += 2;
         V[X] += KK;
         break;
@@ -207,30 +220,35 @@ chip8_status_e chip8_cycle()
 
         // LD Vx, Vy - Load Vy into Vx
         case 0:
+            printf("LD V%x, V%x", X, Y);
             PC += 2;
             V[X] = V[Y];
             break;
 
         // OR Vx, Vy - Load (Vx OR Vy) into Vx
         case 1:
+            printf("OR V%x, V%x", X, Y);
             PC += 2;
             V[X] |= V[Y];
             break;
 
         // AND Vx, Vy - Load (Vx AND Vy) into Vx
         case 2:
+            printf("AND V%x, V%x", X, Y);
             PC += 2;
             V[X] &= V[Y];
             break;
 
         // XOR Vx, Vy - Load (Vx XOR Vy) into Vx
         case 3:
+            printf("XOR V%x, V%x", X, Y);
             PC += 2;
             V[X] ^= V[Y];
             break;
 
         // ADD Vx, Vy - Add Vy to Vx
         case 4:
+            printf("ADD V%x, V%x", X, Y);
             PC += 2;
             temp = V[X] + V[Y];
             V[X] = temp & 0xFF;
@@ -239,6 +257,7 @@ chip8_status_e chip8_cycle()
 
         // SUB Vx, Vy - Subtract Vy from Vx
         case 5: // SUB Vx, Vy
+            printf("SUB V%x, V%x", X, Y);
             PC += 2;
             V[X] -= V[Y];
             V[0xF] = (V[X] > V[Y]);
@@ -246,6 +265,7 @@ chip8_status_e chip8_cycle()
 
         // SHR Vx, {Vf}
         case 6:
+            printf("SHR V%x", X);
             PC += 2;
             V[0xF] = ((V[X] & 0x1) > 0);
             V[X] /= 2;
@@ -253,11 +273,12 @@ chip8_status_e chip8_cycle()
 
         case 7:
             // TODO
-            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            cycle_status = CHIP8_ERROR_UNSUPPORTED_OPCODE;
             break;
 
         // SHL Vx, {Vf} - Shift Vx left, carry into Vf if necessary
         case 0xE:
+            printf("SHL V%x", X);
             PC += 2;
             V[0xF] = ((V[X] & 0x10000000) > 0);
             V[X] *= 2;
@@ -265,7 +286,7 @@ chip8_status_e chip8_cycle()
 
         // Invalid 8-type opcode
         default:
-            return CHIP8_ERROR_INVALID_OPCODE;
+            cycle_status = CHIP8_ERROR_INVALID_OPCODE;
         }
 
         break;
@@ -273,6 +294,7 @@ chip8_status_e chip8_cycle()
     // SNE Vx, Vy - Skip next instruction if Vx does not equal Vy
     // Note: this is technically only a valid opcode when N == 0, not checking for that
     case 9:
+        printf("SNE V%x, V%x", X, Y);
         PC += 2;
         if (V[X] != V[Y])
             PC += 2;
@@ -280,23 +302,27 @@ chip8_status_e chip8_cycle()
 
     // LD I, NNN - Load address into I
     case 0xA:
+        printf("LD I, %03X", NNN);
         PC += 2;
         I = NNN;
         break;
 
     case 0xB:
         // TODO
-        return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+        cycle_status = CHIP8_ERROR_UNSUPPORTED_OPCODE;
         break;
 
     // RAND Vx, kk - Vx is set to (random byte AND kk)
     case 0xC:
+        printf("RAND V%x, $%X", X, KK);
         PC += 2;
         V[X] = random_byte() & KK;
         break;
 
     // DRW Vx, Vy, nibble
     case 0xD:
+        printf("DRW V%X, V%x, %X", X, Y, N);
+
         PC += 2;
 
         // TODO: this does not handle sprites wrapping off screen
@@ -315,6 +341,7 @@ chip8_status_e chip8_cycle()
         {
         // SKP Vx - Skip next instruction if key with value Vx is pressed
         case 0x9E:
+            printf("SKP V%x", X);
             PC += 2;
             if (key_pressed(V[X]))
                 PC += 2;
@@ -322,6 +349,7 @@ chip8_status_e chip8_cycle()
 
         // SKNP Vx - Skip next instruction if key with value Vx is not pressed
         case 0xA1:
+            printf("SKNP V%x", X);
             PC += 2;
             if (!key_pressed(V[X]))
                 PC += 2;
@@ -329,7 +357,8 @@ chip8_status_e chip8_cycle()
 
         // Invalid E-type opcode
         default:
-            return CHIP8_ERROR_INVALID_OPCODE;
+            cycle_status = CHIP8_ERROR_INVALID_OPCODE;
+            break;
         }
 
         break;
@@ -339,27 +368,30 @@ chip8_status_e chip8_cycle()
         {
         case 0x07:
             // TODO
-            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            cycle_status = CHIP8_ERROR_UNSUPPORTED_OPCODE;
             break;
 
+        // LD Vx, K - Wait for a key press, load key value into Vx
         case 0x0A:
             // TODO
-            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            cycle_status = CHIP8_ERROR_UNSUPPORTED_OPCODE;
             break;
 
         case 0x15:
             // TODO
-            return CHIP8_ERROR_UNSUPPORTED_OPCODE;
+            cycle_status = CHIP8_ERROR_UNSUPPORTED_OPCODE;
             break;
 
         // ADD I, Vx - Add Vx to I
         case 0x1E: // ADD I, Vx
+            printf("ADD I, V%x", X);
             PC += 2;
             I += V[X];
             break;
 
         // LD F, Vx - Set I to location of sprite for digit Vx
         case 0x29:
+            printf("LD F, V%x", X);
             PC += 2;
             I = SpriteLookup[V[X]];
             break;
@@ -367,6 +399,7 @@ chip8_status_e chip8_cycle()
         // LD B, Vx - Store BCD of Vx in I, I + 1, and I + 2
         case 0x33:
             // TODO: This is probably really slow
+            printf("LD B, V%x", X);
             PC += 2;
             Memory[I] = V[X] / 100;
             Memory[I + 1] = (V[X] / 100) % 10;
@@ -375,27 +408,33 @@ chip8_status_e chip8_cycle()
 
         // LD [I], Vx - Store registers Vo through Vx in memory starting at address I
         case 0x55:
+            printf("LD [I], V%x", X);
             PC += 2;
             memcpy(&Memory[I], V, X + 1);
             break;
 
         // LD Vx, [I] - Read registers V0 through Vx from memory starting at address I
         case 0x65:
+            printf("LD V%x, [I]", X);
             PC += 2;
             memcpy(V, &Memory[I], X + 1);
             break;
 
         // Invalid F-type opcode
         default:
-            return CHIP8_ERROR_INVALID_OPCODE;
+            cycle_status = CHIP8_ERROR_INVALID_OPCODE;
+            break;
         }
 
         break;
 
     // Invalid opcode
     default:
-        return CHIP8_ERROR_INVALID_OPCODE;
+        cycle_status = CHIP8_ERROR_INVALID_OPCODE;
+        break;
     }
 
-    return CHIP8_SUCCESS;
+    printf("\r\n");
+
+    return cycle_status;
 }

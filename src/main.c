@@ -127,28 +127,63 @@ void poll_input()
 
 int main(int argc, char **argv)
 {
+    if (argv[1] == NULL)
+    {
+        printf("Must specifiy a ROM file, e.g. chip8emu <rom_file>\r\n");
+        return 1;
+    }
+
+    printf("Loading ROM file: %s...\r\n", argv[1]);
+
+    // Load the ROM file from disk
+    FILE *rom_file = fopen(argv[1], "rb");
+
+    if (rom_file == NULL)
+    {
+        printf("Failed to open ROM file: %s\r\n", argv[1]);
+        return 1;
+    }
+
+    size_t rom_size = fread(rom, 1, sizeof(rom), rom_file);
+
+    if (rom_size == 0)
+    {
+        printf("Failed to load ROM file: %s\r\n", argv[1]);
+        return 1;
+    }
+
+    printf("Seeding the random number generator...\r\n");
     // Seed the random number generator
     time_t t;
     srand((unsigned)time(&t));
 
     // Set up the SDL window and renderer
-    SDL_Init(SDL_INIT_VIDEO);
-    SDL_CreateWindowAndRenderer(WINDOW_RES_W, WINDOW_RES_H, 0, &window, &renderer);
+    printf("Setting up SDL...\r\n");
 
-    // Load the ROM file from disk
-    FILE *rom_file = fopen(argv[1], "rb");
-    size_t rom_size = fread(rom, 1, sizeof(rom), rom_file);
+    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    {
+        printf("Could not initialize SDL: %s\r\n", SDL_GetError());
+        return 1;
+    }
+
+    if (SDL_CreateWindowAndRenderer(WINDOW_RES_W, WINDOW_RES_H, 0, &window, &renderer) != 0)
+    {
+        printf("Could not create SDL window and renderer: %s\r\n", SDL_GetError());
+        return 1;
+    }
 
     // Initialize CHIP-8 emulator core
+    printf("Creating the CHIP-8 emulator core...\r\n");
+
     chip8_init(&random_byte, &draw_sprite_line, &key_pressed, &clear_screen);
 
     chip8_status_e status;
 
     // Copy ROM file into emulator memory
+    printf("Copying ROM into CHIP-8 system memory...\r\n");
     status = chip8_load_rom(rom, rom_size);
 
     // Execute op codes from memory
-
     printf("Starting CHIP-8 emulation...\r\n");
 
     bool keyOn = false;
