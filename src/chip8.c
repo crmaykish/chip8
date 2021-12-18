@@ -1,7 +1,11 @@
 #include "chip8.h"
 #include <string.h>
 
+#ifdef DEBUG
 #include <stdio.h>
+#else
+#define printf(...)
+#endif
 
 // === Callbacks === //
 
@@ -10,9 +14,6 @@ static uint8_t (*random_byte)();
 static bool (*key_pressed)(uint8_t index);
 
 static void (*draw_screen)();
-
-// TODO: keep the screen memory internal to the emulator
-// provide callbacks for screen_changed, pixel_drawn, etc.
 
 // TODO: write an assembler/disassembler and some test programs
 
