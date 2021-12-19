@@ -31,7 +31,13 @@ static bool key_pressed(uint8_t index)
     return keys[index];
 }
 
-uint8_t poll_input()
+void single_pix(bool b, uint8_t x, uint8_t y)
+{
+    SDL_Rect rect = {x * WINDOW_SCALE + 1, y * WINDOW_SCALE + 1, WINDOW_SCALE - 2, WINDOW_SCALE - 2};
+    SDL_RenderFillRect(renderer, &rect);
+}
+
+void poll_input()
 {
     SDL_Event e;
     uint8_t key_index;
@@ -43,19 +49,15 @@ uint8_t poll_input()
     if (e.type == SDL_QUIT)
     {
         running = false;
-        return 0xFF;
+        return;
     }
     else if (e.type == SDL_KEYDOWN)
     {
         keyOn = true;
     }
-    else if (e.type == SDL_KEYUP)
-    {
-        keyOn = false;
-    }
     else
     {
-        return 0xFF;
+        return;
     }
 
     switch (e.key.keysym.sym)
@@ -125,13 +127,13 @@ uint8_t poll_input()
         break;
 
     default:
-        return 0xFF;
+        return;
         break;
     }
 
     keys[key_index] = keyOn;
 
-    return keyOn ? key_index : 0xFF;
+    chip8_press_key(key_index);
 }
 
 int main(int argc, char **argv)
@@ -184,7 +186,7 @@ int main(int argc, char **argv)
     }
 
     // Initialize CHIP-8 emulator core
-    if (chip8_init(&random_byte, &key_pressed, &update_screen) != CHIP8_SUCCESS)
+    if (chip8_init(&random_byte, &single_pix, &update_screen) != CHIP8_SUCCESS)
     {
         printf("Failed to create CHIP-8 emulator core.\r\n");
     }
@@ -215,13 +217,7 @@ int main(int argc, char **argv)
 
             break;
         case CHIP8_STATE_WAIT_FOR_INPUT:
-            uint8_t key = poll_input();
-
-            if (key != 0xFF)
-            {
-                chip8_key_interrupt(key);
-            }
-
+            poll_input();
             break;
 
         default:

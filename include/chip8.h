@@ -28,14 +28,16 @@ typedef uint8_t chip8_run_state_e;
 #define CHIP8_STATE_UNSUPPORTED_OPCODE 4
 
 chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
-                          bool (*key_pressed_func)(uint8_t),
-                          void (*draw_screen_func)());
+                          void (*draw_pixel_func)(bool, uint8_t, uint8_t),
+                          void (*clear_screen_func)());
 
 chip8_status_e chip8_cycle();
 
 chip8_run_state_e chip8_get_run_state();
 
 bool *chip8_get_screen();
+
+void chip8_press_key(uint8_t key);
 
 /**
  * @brief Load a CHIP-8 rom binary into the emulator's system memory starting at location 0x200
@@ -45,13 +47,6 @@ bool *chip8_get_screen();
  * @return chip8_status_e CHIP8_STATUS_SUCCESS if ROM is loaded, otherwise an error code corresponding to the problem
  */
 chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes);
-
-/**
- * @brief Alert the CHIP-8 emulator that a key was pressed and that execution should resume
- * 
- * @param key Value of the input key (0-F)
- */
-void chip8_key_interrupt(uint8_t key);
 
 /**
  * @brief Decrement the CHIP-8 sound and delay timers by 1 until they reach 0

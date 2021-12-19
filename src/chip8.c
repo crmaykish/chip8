@@ -11,9 +11,9 @@
 
 static uint8_t (*random_byte)();
 
-static bool (*key_pressed)(uint8_t index);
+void (*draw_pix)(bool, uint8_t, uint8_t);
 
-static void (*draw_screen)();
+void (*clear_screen)();
 
 // TODO: write an assembler/disassembler and some test programs
 
@@ -47,6 +47,9 @@ static uint8_t Font[] = {
     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
     0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 };
+
+// 16 Digit Keypad
+static bool Keys[0x10];
 
 // Address lookup table for font sprites - where in memory does the sprite for each digit start?
 static uint8_t SpriteLookup[0x10] = {0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75};
@@ -98,12 +101,11 @@ static uint8_t i;
 // === Emulator implementation === //
 
 chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
-                          bool (*key_pressed_func)(uint8_t),
-                          void (*draw_screen_func)())
+                          void (*draw_pixel_func)(bool, uint8_t, uint8_t),
+                          void (*clear_screen_func)())
 {
     if (random_byte_func == NULL ||
-        key_pressed_func == NULL ||
-        draw_screen_func == NULL)
+        draw_pixel_func == NULL)
     {
         return CHIP8_ERROR;
     }
@@ -115,13 +117,14 @@ chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
     memset(V, 0, CHIP8_REG_COUNT);
     memset(Stack, 0, CHIP_8_STACK_SIZE);
     memset(Memory, 0, CHIP8_MEM_SIZE);
+    memset(Screen, 0, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
 
     // Copy font data into memory
     memcpy(Memory, Font, sizeof(Font));
 
     random_byte = random_byte_func;
-    key_pressed = key_pressed_func;
-    draw_screen = draw_screen_func;
+    draw_pix = draw_pixel_func;
+    clear_screen = clear_screen_func;
 
     return CHIP8_SUCCESS;
 }
@@ -138,12 +141,16 @@ chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes)
     return CHIP8_SUCCESS;
 }
 
-void chip8_key_interrupt(uint8_t key)
+void chip8_press_key(uint8_t key)
 {
     if (run_state == CHIP8_STATE_WAIT_FOR_INPUT)
     {
         V[io_reg] = key;
         run_state = CHIP8_STATE_RUNNING;
+    }
+    else
+    {
+        Keys[key] = true;
     }
 }
 
@@ -191,7 +198,7 @@ chip8_status_e chip8_cycle()
             printf("CLS");
             PC += 2;
             memset(Screen, 0, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
-            draw_screen();
+            clear_screen();
             break;
 
         // RET - return from subroutine
@@ -378,6 +385,7 @@ chip8_status_e chip8_cycle()
 
         for (i = 0; i < N; ++i)
         {
+            uint8_t j;
             uint8_t b = Memory[I + i];
             uint8_t x = V[X];
             uint8_t y = V[Y] + i;
@@ -387,7 +395,7 @@ chip8_status_e chip8_cycle()
 
             // TODO: this does not handle sprites wrapping off screen
 
-            for (int j = 0; j < 8; ++j)
+            for (j = 0; j < 8; ++j)
             {
                 if (x + j < CHIP8_SCREEN_WIDTH) // TODO: this is a hack to avoid dealing with wrapping
                 {
@@ -397,18 +405,15 @@ chip8_status_e chip8_cycle()
 
                     Screen[(x + j) + (y * CHIP8_SCREEN_WIDTH)] ^= new_pixel;
 
+                    draw_pix(new_pixel, x + j, y);
+
                     if (prev_pixel && !new_pixel)
                     {
                         V[0xF] = 1;
                     }
-
-                    // TODO: it's probably going to be more efficient to call a set_pixel(x, y) function
-                    // here instead of redrawing the whole screen
                 }
             }
         }
-
-        draw_screen();
 
         break;
 
@@ -420,16 +425,24 @@ chip8_status_e chip8_cycle()
         case 0x9E:
             printf("SKP V%x", X);
             PC += 2;
-            if (key_pressed(V[X]))
+            if (Keys[V[X]])
                 PC += 2;
+
+            // Once the key press was acknowledged, mark the key as off
+            Keys[V[X]] = false;
+
             break;
 
         // SKNP Vx - Skip next instruction if key with value Vx is not pressed
         case 0xA1:
             printf("SKNP V%x", X);
             PC += 2;
-            if (!key_pressed(V[X]))
+            if (!Keys[V[X]])
                 PC += 2;
+
+            // Once the key press was acknowledged, mark the key as off
+            Keys[V[X]] = false;
+
             break;
 
         // Invalid E-type opcode
