@@ -379,39 +379,44 @@ chip8_status_e chip8_cycle()
     case 0xD:
         printf("DRW V%x, V%x, %X", X, Y, N);
 
+        // Blatantly stolen from: https://www.arjunnair.in/p37/
+
+        // TODO: needs some optimization for 6502
+
         PC += 2;
 
         V[0xF] = 0;
 
+        // For each byte in the sprite
         for (i = 0; i < N; ++i)
         {
             uint8_t j;
-            uint8_t b = Memory[I + i];
-            uint8_t x = V[X];
-            uint8_t y = V[Y] + i;
-
-            bool prev_pixel;
-            bool new_pixel;
-
-            // TODO: this does not handle sprites wrapping off screen
-
+            uint8_t sprite = Memory[I + i];
+            uint32_t row = (V[Y] + i) % CHIP8_SCREEN_HEIGHT;
+            
+            // For each bit in the byte
             for (j = 0; j < 8; ++j)
             {
-                if (x + j < CHIP8_SCREEN_WIDTH) // TODO: this is a hack to avoid dealing with wrapping
+                uint32_t b = (sprite & 0x80) >> 7;
+                uint32_t col = (V[X] + j) % CHIP8_SCREEN_WIDTH;
+                uint32_t offset = (row * CHIP8_SCREEN_WIDTH) + col;
+
+                if (b == 1)
                 {
-                    prev_pixel = Screen[(x + j) + (y * CHIP8_SCREEN_WIDTH)];
-
-                    new_pixel = (b & (1 << (7 - j)) ? 1 : 0);
-
-                    Screen[(x + j) + (y * CHIP8_SCREEN_WIDTH)] ^= new_pixel;
-
-                    draw_pix(new_pixel, x + j, y);
-
-                    if (prev_pixel && !new_pixel)
+                    if (Screen[offset])
                     {
+                        Screen[offset] = false;
                         V[0xF] = 1;
                     }
+                    else
+                    {
+                        Screen[offset] = true;
+                    }
                 }
+
+                draw_pix(b == 1, col, row);
+
+                sprite <<= 1;
             }
         }
 

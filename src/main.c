@@ -215,6 +215,8 @@ int main(int argc, char **argv)
                 running = false;
             }
 
+            SDL_Delay(1);   // Limit processing to ~1000 instructions per second
+
             break;
         case CHIP8_STATE_WAIT_FOR_INPUT:
             poll_input();
