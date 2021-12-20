@@ -27,9 +27,14 @@ typedef uint8_t chip8_run_state_e;
 #define CHIP8_STATE_INVALID_OPCODE 3
 #define CHIP8_STATE_UNSUPPORTED_OPCODE 4
 
+// === Screen drawing options === //
+typedef uint8_t chip8_screen_redraw_type_e;
+#define CHIP8_REDRAW_SCREEN_CLEAR 0
+#define CHIP8_REDRAW_SCREEN_FULL 1
+
 chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
                           void (*draw_pixel_func)(bool, uint8_t, uint8_t),
-                          void (*clear_screen_func)());
+                          void (*redraw_screen_func)(chip8_screen_redraw_type_e));
 
 chip8_status_e chip8_cycle();
 

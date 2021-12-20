@@ -9,15 +9,13 @@
 
 // === Callbacks === //
 
+// TODO: typedef these functions
+
 static uint8_t (*random_byte)();
 
-void (*draw_pix)(bool, uint8_t, uint8_t);
+void (*pixel_set)(bool, uint8_t, uint8_t);
 
-void (*clear_screen)();
-
-// TODO: write an assembler/disassembler and some test programs
-
-// TODO: add some unit tests
+void (*redraw_screen)(chip8_screen_redraw_type_e);
 
 // === CHIP-8 System State === /
 
@@ -101,11 +99,11 @@ static uint8_t i;
 // === Emulator implementation === //
 
 chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
-                          void (*draw_pixel_func)(bool, uint8_t, uint8_t),
-                          void (*clear_screen_func)())
+                          void (*pixel_set_func)(bool, uint8_t, uint8_t),
+                          void (*redraw_screen_func)(chip8_screen_redraw_type_e))
 {
     if (random_byte_func == NULL ||
-        draw_pixel_func == NULL)
+        pixel_set_func == NULL)
     {
         return CHIP8_ERROR;
     }
@@ -123,8 +121,8 @@ chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
     memcpy(Memory, Font, sizeof(Font));
 
     random_byte = random_byte_func;
-    draw_pix = draw_pixel_func;
-    clear_screen = clear_screen_func;
+    pixel_set = pixel_set_func;
+    redraw_screen = redraw_screen_func;
 
     return CHIP8_SUCCESS;
 }
@@ -198,7 +196,7 @@ chip8_status_e chip8_cycle()
             printf("CLS");
             PC += 2;
             memset(Screen, 0, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
-            clear_screen();
+            redraw_screen(CHIP8_REDRAW_SCREEN_CLEAR);
             break;
 
         // RET - return from subroutine
@@ -225,7 +223,7 @@ chip8_status_e chip8_cycle()
     // CALL nnn - call a subroutine at nnn
     case 2:
         printf("CALL $%03X", NNN);
-        PC += 2; // TODO: I think this is correct, without it, code seems to get stuck in a loop of the first subroutine
+        PC += 2;
         StackPointer++;
         Stack[StackPointer] = PC;
         PC = NNN;
@@ -327,9 +325,12 @@ chip8_status_e chip8_cycle()
             V[X] /= 2;
             break;
 
+        // SUBN Vx, Vy Subtract Vx from Vy, store in Vx
         case 7:
-            // TODO
-            run_state = CHIP8_STATE_UNSUPPORTED_OPCODE;
+            printf("SUBN V%x, V%x", X, Y);
+            PC += 2;
+            V[X] = V[Y] - V[X];
+            V[0xF] = (V[Y] > V[X]);
             break;
 
         // SHL Vx, {Vf} - Shift Vx left, carry into Vf if necessary
@@ -363,9 +364,10 @@ chip8_status_e chip8_cycle()
         I = NNN;
         break;
 
+    // JP V0, NNN
     case 0xB:
-        // TODO
-        run_state = CHIP8_STATE_UNSUPPORTED_OPCODE;
+        printf("JP V0, $%03X", NNN);
+        PC = V[0] + NNN;
         break;
 
     // RAND Vx, kk - Vx is set to (random byte AND kk)
@@ -381,8 +383,6 @@ chip8_status_e chip8_cycle()
 
         // Blatantly stolen from: https://www.arjunnair.in/p37/
 
-        // TODO: needs some optimization for 6502
-
         PC += 2;
 
         V[0xF] = 0;
@@ -393,7 +393,10 @@ chip8_status_e chip8_cycle()
             uint8_t j;
             uint8_t sprite = Memory[I + i];
             uint8_t row = (V[Y] + i) % CHIP8_SCREEN_HEIGHT;
-            
+
+            // TODO: draw_byte function will be the most efficient callback
+            // Let the front-end handle its own drawing for the most part
+
             // For each bit in the byte
             for (j = 0; j < 8; ++j)
             {
@@ -407,23 +410,20 @@ chip8_status_e chip8_cycle()
                     {
                         Screen[offset] = false;
                         V[0xF] = 1;
-
-                        draw_pix(false, col, row);
                     }
                     else
                     {
                         Screen[offset] = true;
-                        draw_pix(true, col, row);
                     }
                 }
 
-                draw_pix(b == 1, col, row);
+                pixel_set(b == 1, col, row);
 
                 sprite <<= 1;
             }
         }
 
-        clear_screen(); // TODO: this is actually an update_screen function
+        redraw_screen(CHIP8_REDRAW_SCREEN_FULL);
 
         break;
 

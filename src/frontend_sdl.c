@@ -17,7 +17,7 @@ bool running = true;
 SDL_Window *window;
 SDL_Renderer *renderer;
 
-void update_screen();
+void draw_screen(chip8_screen_redraw_type_e type);
 
 // Define the callback implementations
 
@@ -31,7 +31,7 @@ static bool key_pressed(uint8_t index)
     return keys[index];
 }
 
-void single_pix(bool b, uint8_t x, uint8_t y)
+void change_pixel(bool b, uint8_t x, uint8_t y)
 {
     SDL_Rect rect = {x * WINDOW_SCALE + 1, y * WINDOW_SCALE + 1, WINDOW_SCALE - 2, WINDOW_SCALE - 2};
     SDL_RenderFillRect(renderer, &rect);
@@ -186,7 +186,7 @@ int main(int argc, char **argv)
     }
 
     // Initialize CHIP-8 emulator core
-    if (chip8_init(&random_byte, &single_pix, &update_screen) != CHIP8_SUCCESS)
+    if (chip8_init(&random_byte, &change_pixel, &draw_screen) != CHIP8_SUCCESS)
     {
         printf("Failed to create CHIP-8 emulator core.\r\n");
     }
@@ -215,7 +215,7 @@ int main(int argc, char **argv)
                 running = false;
             }
 
-            SDL_Delay(1);   // Limit processing to ~1000 instructions per second
+            SDL_Delay(1); // Limit processing to ~1000 instructions per second
 
             break;
         case CHIP8_STATE_WAIT_FOR_INPUT:
@@ -233,7 +233,7 @@ int main(int argc, char **argv)
         if (current_time - last_tick_time > 17)
         {
             chip8_tick_timers();
-            update_screen();
+            draw_screen(CHIP8_REDRAW_SCREEN_FULL);
             last_tick_time = current_time;
         }
     }
@@ -246,7 +246,7 @@ int main(int argc, char **argv)
     return 0;
 }
 
-void update_screen()
+void draw_screen(chip8_screen_redraw_type_e type)
 {
     // Render
     SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
