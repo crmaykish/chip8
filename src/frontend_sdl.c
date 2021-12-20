@@ -8,33 +8,151 @@
 #define WINDOW_RES_W (CHIP8_SCREEN_WIDTH * WINDOW_SCALE)
 #define WINDOW_RES_H (CHIP8_SCREEN_HEIGHT * WINDOW_SCALE)
 
+static bool running = true;
 static uint8_t rom[CHIP8_ROM_MAX_SIZE] = {0};
-
-bool keys[16] = {false};
-
-bool running = true;
 
 SDL_Window *window;
 SDL_Renderer *renderer;
 
-void draw_screen(chip8_screen_redraw_type_e type);
+void draw_screen();
+uint8_t random_byte();
+void poll_input();
 
-// Define the callback implementations
+int main(int argc, char **argv)
+{
+    FILE *rom_file;
+    size_t rom_size;
+    time_t t;
+    unsigned int current_time = 0;
+    unsigned int last_tick_time = 0;
 
-static uint8_t random_byte()
+    if (argv[1] == NULL)
+    {
+        printf("Must specifiy a ROM file, e.g. chip8emu <rom_file>\r\n");
+        return 1;
+    }
+
+    printf("Loading ROM file: %s...\r\n", argv[1]);
+
+    // Load the ROM file from disk
+    rom_file = fopen(argv[1], "rb");
+
+    if (rom_file == NULL)
+    {
+        printf("Failed to open ROM file: %s\r\n", argv[1]);
+        return 1;
+    }
+
+    rom_size = fread(rom, 1, sizeof(rom), rom_file);
+
+    if (rom_size == 0)
+    {
+        printf("Failed to load ROM file: %s\r\n", argv[1]);
+        return 1;
+    }
+
+    // Seed the random number generator
+    srand((unsigned)time(&t));
+
+    // Set up the SDL window and renderer
+    if (SDL_Init(SDL_INIT_VIDEO) != 0)
+    {
+        printf("Could not initialize SDL: %s\r\n", SDL_GetError());
+        return 1;
+    }
+
+    if (SDL_CreateWindowAndRenderer(WINDOW_RES_W, WINDOW_RES_H, 0, &window, &renderer) != 0)
+    {
+        printf("Could not create SDL window and renderer: %s\r\n", SDL_GetError());
+        return 1;
+    }
+
+    // Initialize CHIP-8 emulator core
+    chip8_init();
+
+    chip8_set_random_byte_func(&random_byte);
+    chip8_set_redraw_screen_func(&draw_screen);
+
+    // Copy ROM file into emulator memory
+    if (chip8_load_rom(rom, rom_size) != CHIP8_SUCCESS)
+    {
+        printf("Failed to copy ROM into CHIP-8 system memory.\r\n");
+        return 1;
+    }
+
+    printf("Starting CHIP-8 emulation...\r\n");
+
+    while (running)
+    {
+        chip8_run_state_e state = chip8_get_run_state();
+
+        switch (state)
+        {
+        case CHIP8_STATE_RUNNING:
+            poll_input();
+
+            if (chip8_cycle() != CHIP8_SUCCESS)
+            {
+                printf("Failed to execute CPU cycle.\r\n");
+                running = false;
+            }
+
+            SDL_Delay(1); // Limit processing to ~1000 instructions per second
+
+            break;
+        case CHIP8_STATE_WAIT_FOR_INPUT:
+            poll_input();
+            break;
+
+        default:
+            running = false;
+            break;
+        }
+
+        // Update the timers and redraw the screen at 60Hz
+        current_time = SDL_GetTicks();
+
+        if (current_time - last_tick_time > 17)
+        {
+            chip8_tick_timers();
+            draw_screen(CHIP8_REDRAW_SCREEN_FULL);
+            last_tick_time = current_time;
+        }
+    }
+
+    printf("Exiting\r\n");
+
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+
+    return 0;
+}
+
+uint8_t random_byte()
 {
     return (uint8_t)(rand() % 0xFF);
 }
 
-static bool key_pressed(uint8_t index)
+void draw_screen()
 {
-    return keys[index];
-}
+    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
+    SDL_RenderClear(renderer);
+    SDL_SetRenderDrawColor(renderer, 0x00, 0xFF, 0x00, SDL_ALPHA_OPAQUE);
 
-void change_pixel(bool b, uint8_t x, uint8_t y)
-{
-    SDL_Rect rect = {x * WINDOW_SCALE + 1, y * WINDOW_SCALE + 1, WINDOW_SCALE - 2, WINDOW_SCALE - 2};
-    SDL_RenderFillRect(renderer, &rect);
+    for (int i = 0; i < CHIP8_SCREEN_WIDTH; i++)
+    {
+        for (int j = 0; j < CHIP8_SCREEN_HEIGHT; j++)
+        {
+            if (chip8_get_screen()[(j * CHIP8_SCREEN_WIDTH) + i] == CHIP8_PIXEL_ON)
+            {
+                SDL_Rect rect = {i * WINDOW_SCALE + 1, j * WINDOW_SCALE + 1, WINDOW_SCALE - 2, WINDOW_SCALE - 2};
+
+                SDL_RenderFillRect(renderer, &rect);
+            }
+        }
+    }
+
+    SDL_RenderPresent(renderer);
 }
 
 void poll_input()
@@ -131,140 +249,5 @@ void poll_input()
         break;
     }
 
-    keys[key_index] = keyOn;
-
     chip8_press_key(key_index);
-}
-
-int main(int argc, char **argv)
-{
-    FILE *rom_file;
-    size_t rom_size;
-    time_t t;
-    unsigned int current_time = 0;
-    unsigned int last_tick_time = 0;
-
-    if (argv[1] == NULL)
-    {
-        printf("Must specifiy a ROM file, e.g. chip8emu <rom_file>\r\n");
-        return 1;
-    }
-
-    printf("Loading ROM file: %s...\r\n", argv[1]);
-
-    // Load the ROM file from disk
-    rom_file = fopen(argv[1], "rb");
-
-    if (rom_file == NULL)
-    {
-        printf("Failed to open ROM file: %s\r\n", argv[1]);
-        return 1;
-    }
-
-    rom_size = fread(rom, 1, sizeof(rom), rom_file);
-
-    if (rom_size == 0)
-    {
-        printf("Failed to load ROM file: %s\r\n", argv[1]);
-        return 1;
-    }
-
-    // Seed the random number generator
-    srand((unsigned)time(&t));
-
-    // Set up the SDL window and renderer
-    if (SDL_Init(SDL_INIT_VIDEO) != 0)
-    {
-        printf("Could not initialize SDL: %s\r\n", SDL_GetError());
-        return 1;
-    }
-
-    if (SDL_CreateWindowAndRenderer(WINDOW_RES_W, WINDOW_RES_H, 0, &window, &renderer) != 0)
-    {
-        printf("Could not create SDL window and renderer: %s\r\n", SDL_GetError());
-        return 1;
-    }
-
-    // Initialize CHIP-8 emulator core
-    if (chip8_init(&random_byte, &change_pixel, &draw_screen) != CHIP8_SUCCESS)
-    {
-        printf("Failed to create CHIP-8 emulator core.\r\n");
-    }
-
-    // Copy ROM file into emulator memory
-    if (chip8_load_rom(rom, rom_size) != CHIP8_SUCCESS)
-    {
-        printf("Failed to copy ROM into CHIP-8 system memory.\r\n");
-        return 1;
-    }
-
-    printf("Starting CHIP-8 emulation...\r\n");
-
-    while (running)
-    {
-        chip8_run_state_e state = chip8_get_run_state();
-
-        switch (state)
-        {
-        case CHIP8_STATE_RUNNING:
-            poll_input();
-
-            if (chip8_cycle() != CHIP8_SUCCESS)
-            {
-                printf("Failed to execute CPU cycle.\r\n");
-                running = false;
-            }
-
-            SDL_Delay(1); // Limit processing to ~1000 instructions per second
-
-            break;
-        case CHIP8_STATE_WAIT_FOR_INPUT:
-            poll_input();
-            break;
-
-        default:
-            running = false;
-            break;
-        }
-
-        // Update the timers and redraw the screen at 60Hz
-        current_time = SDL_GetTicks();
-
-        if (current_time - last_tick_time > 17)
-        {
-            chip8_tick_timers();
-            draw_screen(CHIP8_REDRAW_SCREEN_FULL);
-            last_tick_time = current_time;
-        }
-    }
-
-    printf("Exiting\r\n");
-
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-
-    return 0;
-}
-
-void draw_screen(chip8_screen_redraw_type_e type)
-{
-    // Render
-    SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
-    SDL_RenderClear(renderer);
-    SDL_SetRenderDrawColor(renderer, 0x00, 0xFF, 0x00, SDL_ALPHA_OPAQUE);
-
-    for (int i = 0; i < CHIP8_SCREEN_WIDTH; i++)
-    {
-        for (int j = 0; j < CHIP8_SCREEN_HEIGHT; j++)
-        {
-            if (chip8_get_screen()[(j * CHIP8_SCREEN_WIDTH) + i])
-            {
-                SDL_Rect rect = {i * WINDOW_SCALE + 1, j * WINDOW_SCALE + 1, WINDOW_SCALE - 2, WINDOW_SCALE - 2};
-
-                SDL_RenderFillRect(renderer, &rect);
-            }
-        }
-    }
-
-    SDL_RenderPresent(renderer);
 }

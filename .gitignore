@@ -1,3 +1,4 @@
 chip8sdl
 chip8console
 *.o
+.vscode/settings.json

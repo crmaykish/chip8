@@ -1,21 +1,10 @@
 #include "chip8.h"
 #include <string.h>
 
-#ifdef DEBUG
-#include <stdio.h>
-#else
-#define printf(...)
-#endif
-
-// === Callbacks === //
-
-// TODO: typedef these functions
-
-static uint8_t (*random_byte)();
-
-void (*pixel_set)(bool, uint8_t, uint8_t);
-
-void (*redraw_screen)(chip8_screen_redraw_type_e);
+// === Front-end interface callbacks === //
+static chip8_random_byte_ft get_random_byte;
+static chip8_set_pixel_ft set_pixel;
+static chip8_redraw_screen_ft redraw_screen;
 
 // === CHIP-8 System State === /
 
@@ -23,11 +12,10 @@ void (*redraw_screen)(chip8_screen_redraw_type_e);
 static uint8_t Memory[CHIP8_MEM_SIZE];
 
 // 64x32 monochrome display
-static bool Screen[CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT];
+static chip8_pixel_state_e Screen[CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT];
 
-// Bitmap font - this goes into the beginning of memory space
+// System bitmap font
 static uint8_t Font[] = {
-    // First 80 bytes is font sprites
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
     0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
@@ -71,7 +59,7 @@ static uint8_t SoundTimer;
 
 // === Internal emulator state === //
 
-static chip8_run_state_e run_state = CHIP8_STATE_RUNNING;
+static chip8_run_state_e run_state;
 
 static uint8_t io_reg;
 
@@ -98,16 +86,8 @@ static uint8_t i;
 
 // === Emulator implementation === //
 
-chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
-                          void (*pixel_set_func)(bool, uint8_t, uint8_t),
-                          void (*redraw_screen_func)(chip8_screen_redraw_type_e))
+void chip8_init()
 {
-    if (random_byte_func == NULL ||
-        pixel_set_func == NULL)
-    {
-        return CHIP8_ERROR;
-    }
-
     I = 0;
     PC = CHIP8_PC_START;
     StackPointer = 0;
@@ -115,16 +95,27 @@ chip8_status_e chip8_init(uint8_t (*random_byte_func)(),
     memset(V, 0, CHIP8_REG_COUNT);
     memset(Stack, 0, CHIP_8_STACK_SIZE);
     memset(Memory, 0, CHIP8_MEM_SIZE);
-    memset(Screen, 0, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
+    memset(Screen, CHIP8_PIXEL_OFF, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
 
     // Copy font data into memory
     memcpy(Memory, Font, sizeof(Font));
 
-    random_byte = random_byte_func;
-    pixel_set = pixel_set_func;
-    redraw_screen = redraw_screen_func;
+    run_state = CHIP8_STATE_RUNNING;
+}
 
-    return CHIP8_SUCCESS;
+void chip8_set_random_byte_func(chip8_random_byte_ft f)
+{
+    get_random_byte = f;
+}
+
+void chip8_set_set_pixel_func(chip8_set_pixel_ft f)
+{
+    set_pixel = f;
+}
+
+void chip8_set_redraw_screen_func(chip8_redraw_screen_ft f)
+{
+    redraw_screen = f;
 }
 
 chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes)
@@ -173,7 +164,7 @@ chip8_run_state_e chip8_get_run_state()
     return run_state;
 }
 
-bool *chip8_get_screen()
+chip8_pixel_state_e *chip8_get_screen()
 {
     return Screen;
 }
@@ -183,8 +174,6 @@ chip8_status_e chip8_cycle()
     // Fetch opcode from system memory at the program counter
     FETCH();
 
-    printf("%04X: OP: %02X%02X, I: %03X, Vf: %02X | ", PC, op_msb, op_lsb, I, V[0xF]);
-
     // Handle the current opcode based on its type
     switch (TYPE)
     {
@@ -193,15 +182,18 @@ chip8_status_e chip8_cycle()
         {
         // CLS - clear the screen
         case 0xE0:
-            printf("CLS");
             PC += 2;
-            memset(Screen, 0, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
-            redraw_screen(CHIP8_REDRAW_SCREEN_CLEAR);
+            memset(Screen, CHIP8_PIXEL_OFF, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
+
+            if (redraw_screen != NULL)
+            {
+                redraw_screen();
+            }
+
             break;
 
         // RET - return from subroutine
         case 0xEE:
-            printf("RET");
             PC = Stack[StackPointer];
             StackPointer--;
             break;
@@ -216,13 +208,11 @@ chip8_status_e chip8_cycle()
 
     // JP nnn - absolute jump
     case 1:
-        printf("JP $%03X", NNN);
         PC = NNN;
         break;
 
     // CALL nnn - call a subroutine at nnn
     case 2:
-        printf("CALL $%03X", NNN);
         PC += 2;
         StackPointer++;
         Stack[StackPointer] = PC;
@@ -231,7 +221,6 @@ chip8_status_e chip8_cycle()
 
     // SE Vx, kk - Skip next instruction if Vx equals kk
     case 3:
-        printf("SE V%x, $%X", X, KK);
         PC += 2;
         if (V[X] == KK)
             PC += 2;
@@ -239,7 +228,6 @@ chip8_status_e chip8_cycle()
 
     // SNE Vx, kk - Skip next instruction if Vx does not equal kk
     case 4:
-        printf("SNE V%x, $%X", X, KK);
         PC += 2;
         if (V[X] != KK)
             PC += 2;
@@ -248,7 +236,6 @@ chip8_status_e chip8_cycle()
     // SE Vx, Vy - Skip next instruction if Vx == Vy
     // Note: this is technically only a valid opcode when N == 0, not checking for that
     case 5:
-        printf("SE V%x, V%x", X, Y);
         PC += 2;
         if (V[X] == V[Y])
             PC += 2;
@@ -256,14 +243,12 @@ chip8_status_e chip8_cycle()
 
     // LD Vx, kk - Load kk into the Vx register
     case 6:
-        printf("LD V%x, $%X", X, KK);
         PC += 2;
         V[X] = KK;
         break;
 
     // ADD Vx, kk - Add kk to the Vx register
     case 7:
-        printf("ADD V%x, $%X", X, KK);
         PC += 2;
         V[X] += KK;
         break;
@@ -274,35 +259,30 @@ chip8_status_e chip8_cycle()
 
         // LD Vx, Vy - Load Vy into Vx
         case 0:
-            printf("LD V%x, V%x", X, Y);
             PC += 2;
             V[X] = V[Y];
             break;
 
         // OR Vx, Vy - Load (Vx OR Vy) into Vx
         case 1:
-            printf("OR V%x, V%x", X, Y);
             PC += 2;
             V[X] |= V[Y];
             break;
 
         // AND Vx, Vy - Load (Vx AND Vy) into Vx
         case 2:
-            printf("AND V%x, V%x", X, Y);
             PC += 2;
             V[X] &= V[Y];
             break;
 
         // XOR Vx, Vy - Load (Vx XOR Vy) into Vx
         case 3:
-            printf("XOR V%x, V%x", X, Y);
             PC += 2;
             V[X] ^= V[Y];
             break;
 
         // ADD Vx, Vy - Add Vy to Vx
         case 4:
-            printf("ADD V%x, V%x", X, Y);
             PC += 2;
             temp = V[X] + V[Y];
             V[X] = temp & 0xFF;
@@ -311,7 +291,6 @@ chip8_status_e chip8_cycle()
 
         // SUB Vx, Vy - Subtract Vy from Vx
         case 5: // SUB Vx, Vy
-            printf("SUB V%x, V%x", X, Y);
             PC += 2;
             V[X] -= V[Y];
             V[0xF] = (V[X] > V[Y]);
@@ -319,7 +298,6 @@ chip8_status_e chip8_cycle()
 
         // SHR Vx, {Vf}
         case 6:
-            printf("SHR V%x", X);
             PC += 2;
             V[0xF] = ((V[X] & 0x1) > 0);
             V[X] /= 2;
@@ -327,7 +305,6 @@ chip8_status_e chip8_cycle()
 
         // SUBN Vx, Vy Subtract Vx from Vy, store in Vx
         case 7:
-            printf("SUBN V%x, V%x", X, Y);
             PC += 2;
             V[X] = V[Y] - V[X];
             V[0xF] = (V[Y] > V[X]);
@@ -335,7 +312,6 @@ chip8_status_e chip8_cycle()
 
         // SHL Vx, {Vf} - Shift Vx left, carry into Vf if necessary
         case 0xE:
-            printf("SHL V%x", X);
             PC += 2;
             V[0xF] = ((V[X] & 0x10000000) > 0);
             V[X] *= 2;
@@ -351,7 +327,6 @@ chip8_status_e chip8_cycle()
     // SNE Vx, Vy - Skip next instruction if Vx does not equal Vy
     // Note: this is technically only a valid opcode when N == 0, not checking for that
     case 9:
-        printf("SNE V%x, V%x", X, Y);
         PC += 2;
         if (V[X] != V[Y])
             PC += 2;
@@ -359,28 +334,31 @@ chip8_status_e chip8_cycle()
 
     // LD I, NNN - Load address into I
     case 0xA:
-        printf("LD I, $%03X", NNN);
         PC += 2;
         I = NNN;
         break;
 
     // JP V0, NNN
     case 0xB:
-        printf("JP V0, $%03X", NNN);
         PC = V[0] + NNN;
         break;
 
     // RAND Vx, kk - Vx is set to (random byte AND kk)
     case 0xC:
-        printf("RAND V%x, $%X", X, KK);
         PC += 2;
-        V[X] = random_byte() & KK;
+
+        if (get_random_byte != NULL)
+        {
+            V[X] = get_random_byte() & KK;
+        }
+        else
+        {
+            V[X] = 42 & KK; // Note: not very random
+        }
         break;
 
     // DRW Vx, Vy, nibble
     case 0xD:
-        printf("DRW V%x, V%x, %X", X, Y, N);
-
         // Blatantly stolen from: https://www.arjunnair.in/p37/
 
         PC += 2;
@@ -406,24 +384,30 @@ chip8_status_e chip8_cycle()
 
                 if (b == 1)
                 {
-                    if (Screen[offset])
+                    if (Screen[offset] != CHIP8_PIXEL_OFF)
                     {
-                        Screen[offset] = false;
+                        Screen[offset] = CHIP8_PIXEL_OFF;
                         V[0xF] = 1;
                     }
                     else
                     {
-                        Screen[offset] = true;
+                        Screen[offset] = CHIP8_PIXEL_ON;
                     }
                 }
 
-                pixel_set(b == 1, col, row);
+                if (set_pixel != NULL)
+                {
+                    set_pixel((b == 1 ? CHIP8_PIXEL_ON : CHIP8_PIXEL_OFF), col, row);
+                }
 
                 sprite <<= 1;
             }
         }
 
-        redraw_screen(CHIP8_REDRAW_SCREEN_FULL);
+        if (redraw_screen != NULL)
+        {
+            redraw_screen();
+        }
 
         break;
 
@@ -433,7 +417,6 @@ chip8_status_e chip8_cycle()
         {
         // SKP Vx - Skip next instruction if key with value Vx is pressed
         case 0x9E:
-            printf("SKP V%x", X);
             PC += 2;
             if (Keys[V[X]])
                 PC += 2;
@@ -445,7 +428,6 @@ chip8_status_e chip8_cycle()
 
         // SKNP Vx - Skip next instruction if key with value Vx is not pressed
         case 0xA1:
-            printf("SKNP V%x", X);
             PC += 2;
             if (!Keys[V[X]])
                 PC += 2;
@@ -468,14 +450,12 @@ chip8_status_e chip8_cycle()
         {
         // LD Vx, DT
         case 0x07:
-            printf("LD V%x, DT", X);
             PC += 2;
             V[X] = DelayTimer;
             break;
 
         // LD Vx, K - Wait for a key press, load key value into Vx
         case 0x0A:
-            printf("LD V%x, K");
             PC += 2;
             io_reg = X;
             run_state = CHIP8_STATE_WAIT_FOR_INPUT;
@@ -483,28 +463,24 @@ chip8_status_e chip8_cycle()
 
         // LD DT, Vx
         case 0x15:
-            printf("LD DT, V%x", X);
             PC += 2;
             DelayTimer = V[X];
             break;
 
         // LD ST, Vx
         case 0x18:
-            printf("LD ST, V%x", X);
             PC += 2;
             SoundTimer = V[X];
             break;
 
         // ADD I, Vx - Add Vx to I
         case 0x1E: // ADD I, Vx
-            printf("ADD I, V%x", X);
             PC += 2;
             I += V[X];
             break;
 
         // LD F, Vx - Set I to location of sprite for digit Vx
         case 0x29:
-            printf("LD F, V%x", X);
             PC += 2;
             I = SpriteLookup[V[X]];
             break;
@@ -519,14 +495,12 @@ chip8_status_e chip8_cycle()
 
         // LD [I], Vx - Store registers Vo through Vx in memory starting at address I
         case 0x55:
-            printf("LD [I], V%x", X);
             PC += 2;
             memcpy(&Memory[I], V, X + 1);
             break;
 
         // LD Vx, [I] - Read registers V0 through Vx from memory starting at address I
         case 0x65:
-            printf("LD V%x, [I]", X);
             PC += 2;
             memcpy(V, &Memory[I], X + 1);
             break;
@@ -544,15 +518,6 @@ chip8_status_e chip8_cycle()
         run_state = CHIP8_STATE_INVALID_OPCODE;
         break;
     }
-
-    printf(" | ");
-
-    // for (int i = 0; i < 16; i++)
-    // {
-    //     printf("V%x = %d, ", i, V[i]);
-    // }
-
-    printf("\r\n");
 
     if (run_state == CHIP8_STATE_RUNNING || run_state == CHIP8_STATE_WAIT_FOR_INPUT)
     {
