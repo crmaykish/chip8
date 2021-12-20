@@ -67,16 +67,6 @@ static bool key_pressed(uint8_t index)
 
 void single_pix(bool b, uint8_t x, uint8_t y)
 {
-    cursor_set_pos(y, 2 * x);
-
-    if (b)
-    {
-        printf("##");
-    }
-    else
-    {
-        printf("  ");
-    }
 }
 
 int main(int argc, char **argv)
@@ -133,6 +123,9 @@ int main(int argc, char **argv)
     screen_clear();
     set_cursor_visible(false);
 
+
+    // TODO: handle user input
+
     while (running)
     {
         chip8_run_state_e state = chip8_get_run_state();
@@ -158,6 +151,8 @@ int main(int argc, char **argv)
             break;
         }
 
+        // TODO: CPU usage is at 100%, add some sleep between emulator cycles
+
         // Update the timers and redraw the screen at 60Hz
         struct timeval ti;
         gettimeofday(&ti, NULL);
@@ -179,4 +174,21 @@ int main(int argc, char **argv)
 void update_screen()
 {
     screen_clear();
+
+    for (int i = 0; i < 64; i++)
+    {
+        for (int j = 0; j < 32; j++)
+        {
+            cursor_set_pos(j, i * 2);
+
+            if (chip8_get_screen()[j * 64 + i])
+            {
+                printf("##");
+            }
+            else
+            {
+                printf("  ");
+            }
+        }
+    }
 }

@@ -407,10 +407,13 @@ chip8_status_e chip8_cycle()
                     {
                         Screen[offset] = false;
                         V[0xF] = 1;
+
+                        draw_pix(false, col, row);
                     }
                     else
                     {
                         Screen[offset] = true;
+                        draw_pix(true, col, row);
                     }
                 }
 
@@ -419,6 +422,8 @@ chip8_status_e chip8_cycle()
                 sprite <<= 1;
             }
         }
+
+        clear_screen(); // TODO: this is actually an update_screen function
 
         break;
 
