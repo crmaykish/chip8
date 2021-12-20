@@ -2,9 +2,9 @@
 #include <string.h>
 
 // === Front-end interface callbacks === //
-static chip8_random_byte_ft get_random_byte;
-static chip8_set_pixel_ft set_pixel;
-static chip8_redraw_screen_ft redraw_screen;
+static chip8_random_byte_ft get_random_byte = NULL;
+static chip8_set_pixel_ft set_pixel = NULL;
+static chip8_redraw_screen_ft redraw_screen = NULL;
 
 // === CHIP-8 System State === /
 
@@ -96,6 +96,7 @@ void chip8_init()
     memset(Stack, 0, CHIP_8_STACK_SIZE);
     memset(Memory, 0, CHIP8_MEM_SIZE);
     memset(Screen, CHIP8_PIXEL_OFF, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
+    memset(Keys, 0, 0x10);
 
     // Copy font data into memory
     memcpy(Memory, Font, sizeof(Font));
@@ -187,7 +188,7 @@ chip8_status_e chip8_cycle()
 
             if (redraw_screen != NULL)
             {
-                redraw_screen();
+                redraw_screen(true);
             }
 
             break;
@@ -397,7 +398,7 @@ chip8_status_e chip8_cycle()
 
                 if (set_pixel != NULL)
                 {
-                    set_pixel((b == 1 ? CHIP8_PIXEL_ON : CHIP8_PIXEL_OFF), col, row);
+                    set_pixel(col, row, (b == 1 ? CHIP8_PIXEL_ON : CHIP8_PIXEL_OFF));
                 }
 
                 sprite <<= 1;
@@ -406,7 +407,7 @@ chip8_status_e chip8_cycle()
 
         if (redraw_screen != NULL)
         {
-            redraw_screen();
+            redraw_screen(false);
         }
 
         break;

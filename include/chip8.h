@@ -40,7 +40,7 @@ typedef uint8_t chip8_pixel_state_e;
 // === Interface functions === //
 typedef uint8_t (*chip8_random_byte_ft)();
 typedef void (*chip8_set_pixel_ft)(uint8_t, uint8_t, chip8_pixel_state_e);
-typedef void (*chip8_redraw_screen_ft)();
+typedef void (*chip8_redraw_screen_ft)(bool);
 
 void chip8_init();
 
