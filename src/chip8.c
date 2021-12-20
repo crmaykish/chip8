@@ -392,14 +392,14 @@ chip8_status_e chip8_cycle()
         {
             uint8_t j;
             uint8_t sprite = Memory[I + i];
-            uint32_t row = (V[Y] + i) % CHIP8_SCREEN_HEIGHT;
+            uint8_t row = (V[Y] + i) % CHIP8_SCREEN_HEIGHT;
             
             // For each bit in the byte
             for (j = 0; j < 8; ++j)
             {
-                uint32_t b = (sprite & 0x80) >> 7;
-                uint32_t col = (V[X] + j) % CHIP8_SCREEN_WIDTH;
-                uint32_t offset = (row * CHIP8_SCREEN_WIDTH) + col;
+                uint8_t b = (sprite & 0x80) >> 7;
+                uint8_t col = (V[X] + j) % CHIP8_SCREEN_WIDTH;
+                uint16_t offset = (row * CHIP8_SCREEN_WIDTH) + col;
 
                 if (b == 1)
                 {
