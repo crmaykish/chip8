@@ -4,7 +4,7 @@
 // === Front-end interface callbacks === //
 static chip8_random_byte_ft get_random_byte = NULL;
 static chip8_set_pixel_ft set_pixel = NULL;
-static chip8_redraw_screen_ft redraw_screen = NULL;
+static chip8_clear_screen_ft clear_screen = NULL;
 
 // === CHIP-8 System State === /
 
@@ -114,9 +114,9 @@ void chip8_set_set_pixel_func(chip8_set_pixel_ft f)
     set_pixel = f;
 }
 
-void chip8_set_redraw_screen_func(chip8_redraw_screen_ft f)
+void chip8_set_clear_screen_func(chip8_clear_screen_ft f)
 {
-    redraw_screen = f;
+    clear_screen = f;
 }
 
 chip8_status_e chip8_load_rom(uint8_t *rom, size_t bytes)
@@ -186,9 +186,9 @@ chip8_status_e chip8_cycle()
             PC += 2;
             memset(Screen, CHIP8_PIXEL_OFF, CHIP8_SCREEN_WIDTH * CHIP8_SCREEN_HEIGHT);
 
-            if (redraw_screen != NULL)
+            if (clear_screen != NULL)
             {
-                redraw_screen(true);
+                clear_screen();
             }
 
             break;
@@ -388,26 +388,27 @@ chip8_status_e chip8_cycle()
                     if (Screen[offset] != CHIP8_PIXEL_OFF)
                     {
                         Screen[offset] = CHIP8_PIXEL_OFF;
+
+                        if (set_pixel != NULL)
+                        {
+                            set_pixel(col, row, CHIP8_PIXEL_OFF);
+                        }
+
                         V[0xF] = 1;
                     }
                     else
                     {
                         Screen[offset] = CHIP8_PIXEL_ON;
-                    }
-                }
 
-                if (set_pixel != NULL)
-                {
-                    set_pixel(col, row, (b == 1 ? CHIP8_PIXEL_ON : CHIP8_PIXEL_OFF));
+                        if (set_pixel != NULL)
+                        {
+                            set_pixel(col, row, CHIP8_PIXEL_ON);
+                        }
+                    }
                 }
 
                 sprite <<= 1;
             }
-        }
-
-        if (redraw_screen != NULL)
-        {
-            redraw_screen(false);
         }
 
         break;

@@ -40,7 +40,7 @@ typedef uint8_t chip8_pixel_state_e;
 // === Interface functions === //
 typedef uint8_t (*chip8_random_byte_ft)();
 typedef void (*chip8_set_pixel_ft)(uint8_t, uint8_t, chip8_pixel_state_e);
-typedef void (*chip8_redraw_screen_ft)(bool);
+typedef void (*chip8_clear_screen_ft)();
 
 void chip8_init();
 
@@ -56,7 +56,7 @@ void chip8_set_random_byte_func(chip8_random_byte_ft f);
 
 void chip8_set_set_pixel_func(chip8_set_pixel_ft f);
 
-void chip8_set_redraw_screen_func(chip8_redraw_screen_ft f);
+void chip8_set_clear_screen_func(chip8_clear_screen_ft f);
 
 /**
  * @brief Load a CHIP-8 rom binary into the emulator's system memory starting at location 0x200

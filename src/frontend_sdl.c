@@ -14,8 +14,10 @@ static uint8_t rom[CHIP8_ROM_MAX_SIZE] = {0};
 SDL_Window *window;
 SDL_Renderer *renderer;
 
-void draw_screen();
+void clear_screen();
+void set_pixel(uint8_t x, uint8_t y, chip8_pixel_state_e p);
 uint8_t random_byte();
+
 void poll_input();
 
 int main(int argc, char **argv)
@@ -67,11 +69,14 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    clear_screen();
+
     // Initialize CHIP-8 emulator core
     chip8_init();
 
     chip8_set_random_byte_func(&random_byte);
-    chip8_set_redraw_screen_func(&draw_screen);
+    chip8_set_clear_screen_func(&clear_screen);
+    chip8_set_set_pixel_func(&set_pixel);
 
     // Copy ROM file into emulator memory
     if (chip8_load_rom(rom, rom_size) != CHIP8_SUCCESS)
@@ -115,7 +120,7 @@ int main(int argc, char **argv)
         if (current_time - last_tick_time > 17)
         {
             chip8_tick_timers();
-            draw_screen(CHIP8_REDRAW_SCREEN_FULL);
+            SDL_RenderPresent(renderer);
             last_tick_time = current_time;
         }
     }
@@ -133,26 +138,11 @@ uint8_t random_byte()
     return (uint8_t)(rand() % 0xFF);
 }
 
-void draw_screen()
+void clear_screen()
 {
     SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
     SDL_RenderClear(renderer);
     SDL_SetRenderDrawColor(renderer, 0x00, 0xFF, 0x00, SDL_ALPHA_OPAQUE);
-
-    for (int i = 0; i < CHIP8_SCREEN_WIDTH; i++)
-    {
-        for (int j = 0; j < CHIP8_SCREEN_HEIGHT; j++)
-        {
-            if (chip8_get_screen()[(j * CHIP8_SCREEN_WIDTH) + i] == CHIP8_PIXEL_ON)
-            {
-                SDL_Rect rect = {i * WINDOW_SCALE + 1, j * WINDOW_SCALE + 1, WINDOW_SCALE - 2, WINDOW_SCALE - 2};
-
-                SDL_RenderFillRect(renderer, &rect);
-            }
-        }
-    }
-
-    SDL_RenderPresent(renderer);
 }
 
 void poll_input()
@@ -250,4 +240,20 @@ void poll_input()
     }
 
     chip8_press_key(key_index);
+}
+
+void set_pixel(uint8_t x, uint8_t y, chip8_pixel_state_e p)
+{
+    if (p == CHIP8_PIXEL_ON)
+    {
+        SDL_SetRenderDrawColor(renderer, 0x00, 0xFF, 0x00, SDL_ALPHA_OPAQUE);
+    }
+    else
+    {
+        SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
+    }
+
+    SDL_Rect rect = {x * WINDOW_SCALE + 1, y * WINDOW_SCALE + 1, WINDOW_SCALE - 2, WINDOW_SCALE - 2};
+
+    SDL_RenderFillRect(renderer, &rect);
 }
